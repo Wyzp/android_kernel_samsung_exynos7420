@@ -48,6 +48,7 @@ int alarm_start_relative(struct alarm *alarm, ktime_t start);
 void alarm_restart(struct alarm *alarm);
 int alarm_try_to_cancel(struct alarm *alarm);
 int alarm_cancel(struct alarm *alarm);
+void set_power_on_alarm(long secs, bool enable);
 
 #if defined(CONFIG_RTC_ALARM_BOOT)
 int alarm_set_alarm_boot(char *alarm_data);
