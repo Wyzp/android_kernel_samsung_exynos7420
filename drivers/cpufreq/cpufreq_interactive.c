@@ -56,6 +56,7 @@ struct cpufreq_interactive_cpuinfo {
 	u64 cputime_speedadj;
 	u64 cputime_speedadj_timestamp;
 	struct cpufreq_policy *policy;
+	struct cpufreq_policy p_nolim; /* policy copy with no limits */
 	struct cpufreq_frequency_table *freq_table;
 	spinlock_t target_freq_lock; /*protects target freq */
 	unsigned int target_freq;
@@ -447,7 +448,7 @@ static unsigned int choose_freq(struct cpufreq_interactive_cpuinfo *pcpu,
 		 */
 
 		if (cpufreq_frequency_table_target(
-			    pcpu->policy, pcpu->freq_table, loadadjfreq / tl,
+			    &pcpu->p_nolim, pcpu->freq_table, loadadjfreq / tl,
 			    CPUFREQ_RELATION_L, &index))
 			break;
 		freq = pcpu->freq_table[index].frequency;
@@ -462,7 +463,7 @@ static unsigned int choose_freq(struct cpufreq_interactive_cpuinfo *pcpu,
 				 * than freqmax.
 				 */
 				if (cpufreq_frequency_table_target(
-					    pcpu->policy, pcpu->freq_table,
+					    &pcpu->p_nolim, pcpu->freq_table,
 					    freqmax - 1, CPUFREQ_RELATION_H,
 					    &index))
 					break;
@@ -489,7 +490,7 @@ static unsigned int choose_freq(struct cpufreq_interactive_cpuinfo *pcpu,
 				 * than freqmin.
 				 */
 				if (cpufreq_frequency_table_target(
-					    pcpu->policy, pcpu->freq_table,
+					    &pcpu->p_nolim, pcpu->freq_table,
 					    freqmin + 1, CPUFREQ_RELATION_L,
 					    &index))
 					break;
@@ -643,8 +644,8 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 		policy_max_fast_restore = true;
 	}
 
-	if (policy_max_fast_restore) {
-		new_freq = ppol->policy->max;
+	if (policy_max_fast_restore || jump_to_max) {
+		new_freq = ppol->policy->cpuinfo.max_freq;
 	} else if (skip_hispeed_logic) {
 		new_freq = choose_freq(ppol, loadadjfreq);
 	} else if (cpu_load >= tunables->go_hispeed_load || tunables->boosted) {
@@ -679,7 +680,9 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 		goto rearm;
 	}
 
-	if (cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table,
+	ppol->hispeed_validate_time = now;
+
+	if (cpufreq_frequency_table_target(&ppol->p_nolim, ppol->freq_table,
 					   new_freq, CPUFREQ_RELATION_L,
 					   &index)) {
 		spin_unlock_irqrestore(&pcpu->target_freq_lock, flags);
@@ -720,7 +723,7 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 		ppol->floor_validate_time = now;
 	}
 
-	if (new_freq == ppol->policy->max && !policy_max_fast_restore)
+	if (new_freq >= ppol->policy->max && !policy_max_fast_restore)
 		ppol->max_freq_hyst_start_time = now;
 
 	if (pcpu->target_freq == new_freq &&
@@ -2111,12 +2114,6 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 	struct cpufreq_interactive_cpuinfo *pcpu;
 	struct cpufreq_frequency_table *freq_table;
 	struct cpufreq_interactive_tunables *tunables;
-	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
-	char speedchange_task_name[TASK_NAME_LEN];
-	unsigned long flags;
-#ifdef CONFIG_PMU_COREMEM_RATIO
-	char regionchange_task_name[TASK_NAME_LEN];
-#endif
 
 	if (have_governor_per_policy())
 		tunables = policy->governor_data;
@@ -2262,74 +2259,27 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 		if (!tunables->hispeed_freq)
 			tunables->hispeed_freq = policy->max;
 
-#ifdef CONFIG_MODE_AUTO_CHANGE
-		for (j = 0; j < MAX_PARAM_SET; j++) {
-			if (!tunables->hispeed_freq_set[j])
-				tunables->hispeed_freq_set[j] = policy->max;
-		}
-#endif
-		for_each_cpu(j, policy->cpus) {
-			pcpu = &per_cpu(cpuinfo, j);
-			pcpu->policy = policy;
-			pcpu->target_freq = policy->cur;
-			pcpu->freq_table = freq_table;
-			pcpu->floor_freq = pcpu->target_freq;
-			pcpu->floor_validate_time =
-				ktime_to_us(ktime_get());
-			pcpu->hispeed_validate_time =
-				pcpu->floor_validate_time;
-			pcpu->max_freq = policy->max;
-			down_write(&pcpu->enable_sem);
-			del_timer_sync(&pcpu->cpu_timer);
-			del_timer_sync(&pcpu->cpu_slack_timer);
-			cpufreq_interactive_timer_start(tunables, j);
-			pcpu->governor_enabled = 1;
-			up_write(&pcpu->enable_sem);
-		}
-
-		snprintf(speedchange_task_name, TASK_NAME_LEN, "cfinteractive%d\n",
-					policy->cpu);
-
-		tunables->speedchange_task =
-			kthread_create(cpufreq_interactive_speedchange_task, NULL,
-				       speedchange_task_name);
-		if (IS_ERR(tunables->speedchange_task)) {
-			mutex_unlock(&gov_lock);
-			return PTR_ERR(tunables->speedchange_task);
-		}
-
-		sched_setscheduler_nocheck(tunables->speedchange_task, SCHED_FIFO, &param);
-		get_task_struct(tunables->speedchange_task);
-
-#ifdef CONFIG_PMU_COREMEM_RATIO
-		snprintf(regionchange_task_name, TASK_NAME_LEN, "region%d",
-					policy->cpu);
-
-		tunables->regionchange_task =
-			kthread_create(cpufreq_interactive_regionchange_task, NULL,
-					regionchange_task_name);
-		if (IS_ERR(tunables->regionchange_task)) {
-			kthread_stop(tunables->regionchange_task);
-			mutex_unlock(&gov_lock);
-			return PTR_ERR(tunables->regionchange_task);
-		}
-
-		sched_setscheduler_nocheck(tunables->regionchange_task, SCHED_FIFO, &param);
-		get_task_struct(tunables->regionchange_task);
-#endif
-
-#if defined(CONFIG_ARM_EXYNOS_MP_CPUFREQ) || defined(CONFIG_ARM_EXYNOS_SMP_CPUFREQ)
-		kthread_bind(tunables->speedchange_task, policy->cpu);
-#ifdef CONFIG_PMU_COREMEM_RATIO
-		kthread_bind(tunables->regionchange_task, policy->cpu);
-#endif
-#endif
-
-		/* NB: wake up so the thread does not look hung to the freezer */
-		wake_up_process(tunables->speedchange_task);
-#ifdef CONFIG_PMU_COREMEM_RATIO
-		wake_up_process(tunables->regionchange_task);
-#endif
+		ppol = per_cpu(polinfo, policy->cpu);
+		ppol->policy = policy;
+		ppol->target_freq = policy->cur;
+		ppol->freq_table = freq_table;
+		ppol->p_nolim = *policy;
+		ppol->p_nolim.min = policy->cpuinfo.min_freq;
+		ppol->p_nolim.max = policy->cpuinfo.max_freq;
+		ppol->floor_freq = ppol->target_freq;
+		ppol->floor_validate_time = ktime_to_us(ktime_get());
+		ppol->hispeed_validate_time = ppol->floor_validate_time;
+		ppol->min_freq = policy->min;
+		ppol->reject_notification = true;
+		down_write(&ppol->enable_sem);
+		del_timer_sync(&ppol->policy_timer);
+		del_timer_sync(&ppol->policy_slack_timer);
+		ppol->policy_timer.data = policy->cpu;
+		ppol->last_evaluated_jiffy = get_jiffies_64();
+		cpufreq_interactive_timer_start(tunables, policy->cpu);
+		ppol->governor_enabled = 1;
+		up_write(&ppol->enable_sem);
+		ppol->reject_notification = false;
 
 		mutex_unlock(&gov_lock);
 		break;
@@ -2359,44 +2309,19 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 		break;
 
 	case CPUFREQ_GOV_LIMITS:
-		if (policy->max < policy->cur)
-			__cpufreq_driver_target(policy,
-					policy->max, CPUFREQ_RELATION_H);
-		else if (policy->min > policy->cur)
-			__cpufreq_driver_target(policy,
-					policy->min, CPUFREQ_RELATION_L);
-		for_each_cpu(j, policy->cpus) {
-			pcpu = &per_cpu(cpuinfo, j);
+		ppol = per_cpu(polinfo, policy->cpu);
 
-			down_read(&pcpu->enable_sem);
-			if (pcpu->governor_enabled == 0) {
-				up_read(&pcpu->enable_sem);
-				continue;
-			}
+		__cpufreq_driver_target(policy,
+				ppol->target_freq, CPUFREQ_RELATION_L);
 
-			spin_lock_irqsave(&pcpu->target_freq_lock, flags);
-			if (policy->max < pcpu->target_freq)
-				pcpu->target_freq = policy->max;
-			else if (policy->min > pcpu->target_freq)
-				pcpu->target_freq = policy->min;
-
-			spin_unlock_irqrestore(&pcpu->target_freq_lock, flags);
-			up_read(&pcpu->enable_sem);
-
-			/* Reschedule timer only if policy->max is raised.
-			 * Delete the timers, else the timer callback may
-			 * return without re-arm the timer when failed
-			 * acquire the semaphore. This race may cause timer
-			 * stopped unexpectedly.
-			 */
-
-			if (policy->max > pcpu->max_freq) {
-				down_write(&pcpu->enable_sem);
-				del_timer_sync(&pcpu->cpu_timer);
-				del_timer_sync(&pcpu->cpu_slack_timer);
-				cpufreq_interactive_timer_start(tunables, j);
-				up_write(&pcpu->enable_sem);
-			}
+		down_read(&ppol->enable_sem);
+		if (ppol->governor_enabled) {
+			if (policy->min < ppol->min_freq)
+				cpufreq_interactive_timer_resched(policy->cpu,
+								  true);
+			ppol->min_freq = policy->min;
+		}
+		up_read(&ppol->enable_sem);
 
 			pcpu->max_freq = policy->max;
 		}
