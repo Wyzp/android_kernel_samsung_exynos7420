@@ -61,7 +61,9 @@ struct cpufreq_interactive_cpuinfo {
 	u64 pol_hispeed_val_time; /* policy hispeed_validate_time */
 	u64 loc_hispeed_val_time; /* per-cpu hispeed_validate_time */
 	u64 floor_validate_time;
-	u64 hispeed_validate_time;
+	u64 hispeed_validate_time; /* cluster hispeed_validate_time */
+	u64 local_hvtime; /* per-cpu hispeed_validate_time */
+	u64 max_freq_idle_start_time;
 	struct rw_semaphore enable_sem;
 	int governor_enabled;
 };
@@ -682,6 +684,8 @@ static void cpufreq_interactive_timer(unsigned long data)
 			new_freq = tunables->hispeed_freq;
 	}
 
+	pcpu->local_hvtime = now;
+
 	if (cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table,
 					   new_freq, CPUFREQ_RELATION_L,
 					   &index)) {
@@ -830,7 +834,7 @@ static int cpufreq_interactive_speedchange_task(void *data)
 			unsigned int j;
 			unsigned int max_freq = 0;
 			struct cpufreq_interactive_cpuinfo *pjcpu;
-			u64 hvt = ~0ULL, fvt = 0;
+			u64 hvt;
 
 			pcpu = &per_cpu(cpuinfo, cpu);
 			if (!down_read_trylock(&pcpu->enable_sem))
@@ -842,13 +846,11 @@ static int cpufreq_interactive_speedchange_task(void *data)
 
 			for_each_cpu(j, pcpu->policy->cpus) {
 				pjcpu = &per_cpu(cpuinfo, j);
-
-				fvt = max(fvt, pjcpu->loc_floor_val_time);
 				if (pjcpu->target_freq > max_freq) {
 					max_freq = pjcpu->target_freq;
-					hvt = pjcpu->loc_hispeed_val_time;
+					hvt = pjcpu->local_hvtime;
 				} else if (pjcpu->target_freq == max_freq) {
-					hvt = min(hvt, pjcpu->loc_hispeed_val_time);
+					hvt = min(hvt, pjcpu->local_hvtime);
 				}
 			}
 			for_each_cpu(j, pcpu->policy->cpus) {
@@ -865,7 +867,7 @@ static int cpufreq_interactive_speedchange_task(void *data)
 							CPUFREQ_RELATION_H);
 				for_each_cpu(j, pcpu->policy->cpus) {
 					pjcpu = &per_cpu(cpuinfo, j);
-					pjcpu->pol_hispeed_val_time = hvt;
+					pjcpu->hispeed_validate_time = hvt;
 				}
 			}
 
@@ -2096,9 +2098,10 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 			pcpu->floor_freq = pcpu->target_freq;
 			pcpu->pol_floor_val_time =
 				ktime_to_us(ktime_get());
-			pcpu->loc_floor_val_time = pcpu->pol_floor_val_time;
-			pcpu->pol_hispeed_val_time = pcpu->pol_floor_val_time;
-			pcpu->loc_hispeed_val_time = pcpu->pol_floor_val_time;
+			pcpu->hispeed_validate_time =
+				pcpu->floor_validate_time;
+			pcpu->local_hvtime = pcpu->floor_validate_time;
+			pcpu->max_freq = policy->max;
 			down_write(&pcpu->enable_sem);
 			del_timer_sync(&pcpu->cpu_timer);
 			del_timer_sync(&pcpu->cpu_slack_timer);
