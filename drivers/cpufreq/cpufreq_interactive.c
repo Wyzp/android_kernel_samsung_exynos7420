@@ -62,7 +62,8 @@ struct cpufreq_interactive_cpuinfo {
 	unsigned int floor_freq;
 	unsigned int max_freq;
 	u64 floor_validate_time;
-	u64 hispeed_validate_time;
+	u64 hispeed_validate_time; /* cluster hispeed_validate_time */
+	u64 local_hvtime; /* per-cpu hispeed_validate_time */
 	u64 max_freq_hyst_start_time;
 	struct rw_semaphore enable_sem;
 	int governor_enabled;
@@ -838,7 +839,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	spin_lock_irqsave(&speedchange_cpumask_lock, flags);
 	cpumask_set_cpu(data, &speedchange_cpumask);
 	spin_unlock_irqrestore(&speedchange_cpumask_lock, flags);
-	wake_up_process(tunables->speedchange_task);
+	wake_up_process(speedchange_task);
 
 rearm:
 	if (!timer_pending(&pcpu->cpu_timer))
@@ -848,6 +849,7 @@ exit:
 	up_read(&pcpu->enable_sem);
 	return;
 }
+
 
 static void cpufreq_interactive_idle_end(void)
 {
@@ -2129,7 +2131,6 @@ static int cpufreq_interactive_idle_notifier(struct notifier_block *nb,
 					     unsigned long val,
 					     void *data)
 {
-	// CONFIG_PMU_COREMEM_RATIO crippled
 
 	if (val == IDLE_END)
 		cpufreq_interactive_idle_end();
