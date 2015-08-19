@@ -243,6 +243,12 @@ struct cpufreq_interactive_tunables {
 	 */
 	unsigned int max_freq_hysteresis;
 
+	/* Ignore hispeed_freq and above_hispeed_delay for notification */
+	bool ignore_hispeed_on_notif;
+
+	/* Ignore min_sample_time for notification */
+	bool fast_ramp_down;
+
 };
 
 /* For cases where we have single governor instance for system */
@@ -546,149 +552,8 @@ static u64 update_load(int cpu)
 	return now;
 }
 
-#ifdef CONFIG_MODE_AUTO_CHANGE
-static unsigned int check_mode(int cpu, unsigned int cur_mode, u64 now)
-{
-	int i;
-	unsigned int ret=cur_mode, total_load=0, max_single_load=0;
-	struct cpufreq_loadinfo *cur_loadinfo;
-	struct cpufreq_interactive_cpuinfo *pcpu = &per_cpu(cpuinfo, cpu);
-	struct cpufreq_interactive_tunables *tunables =
-		pcpu->policy->governor_data;
+static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 
-	if (now - tunables->mode_check_timestamp < jiffies_to_usecs(tunables->timer_rate) - USEC_PER_MSEC)
-		return ret;
-
-	if (now - tunables->mode_check_timestamp > jiffies_to_usecs(tunables->timer_rate) + USEC_PER_MSEC)
-		tunables->mode_check_timestamp = now - jiffies_to_usecs(tunables->timer_rate);
-
-	if(cpumask_test_cpu(cpu, &hmp_fast_cpu_mask)) {
-		for_each_cpu_mask(i, hmp_fast_cpu_mask) {
-			cur_loadinfo = &per_cpu(loadinfo, i);
-			if (now - cur_loadinfo->timestamp <= jiffies_to_usecs(tunables->timer_rate) + USEC_PER_MSEC) {
-				total_load += cur_loadinfo->load;
-				if (cur_loadinfo->load > max_single_load)
-					max_single_load = cur_loadinfo->load;
-			}
-		}
-	}
-	else
-		return ret;
-
-	if (!(cur_mode & SINGLE_MODE)) {
-		if (max_single_load >= tunables->single_enter_load)
-			tunables->time_in_single_enter += now - tunables->mode_check_timestamp;
-		else
-			tunables->time_in_single_enter = 0;
-
-		if (tunables->time_in_single_enter >= tunables->single_enter_time)
-			ret |= SINGLE_MODE;
-	}
-
-	if (!(cur_mode & MULTI_MODE)) {
-		if (total_load >= tunables->multi_enter_load)
-			tunables->time_in_multi_enter += now - tunables->mode_check_timestamp;
-		else
-			tunables->time_in_multi_enter = 0;
-
-		if (tunables->time_in_multi_enter >= tunables->multi_enter_time)
-			ret |= MULTI_MODE;
-	}
-
-	if (cur_mode & SINGLE_MODE) {
-		if (max_single_load < tunables->single_exit_load)
-			tunables->time_in_single_exit += now - tunables->mode_check_timestamp;
-		else
-			tunables->time_in_single_exit = 0;
-
-		if (tunables->time_in_single_exit >= tunables->single_exit_time)
-			ret &= ~SINGLE_MODE;
-	}
-
-	if (cur_mode & MULTI_MODE) {
-		if (total_load < tunables->multi_exit_load)
-			tunables->time_in_multi_exit += now - tunables->mode_check_timestamp;
-		else
-			tunables->time_in_multi_exit = 0;
-
-		if (tunables->time_in_multi_exit >= tunables->multi_exit_time)
-			ret &= ~MULTI_MODE;
-	}
-
-	trace_cpufreq_interactive_mode(cpu, total_load,
-		tunables->time_in_single_enter, tunables->time_in_multi_enter,
-		tunables->time_in_single_exit, tunables->time_in_multi_exit, ret);
-
-	if (tunables->time_in_single_enter >= tunables->single_enter_time)
-		tunables->time_in_single_enter = 0;
-	if (tunables->time_in_multi_enter >= tunables->multi_enter_time)
-		tunables->time_in_multi_enter = 0;
-	if (tunables->time_in_single_exit >= tunables->single_exit_time)
-		tunables->time_in_single_exit = 0;
-	if (tunables->time_in_multi_exit >= tunables->multi_exit_time)
-		tunables->time_in_multi_exit = 0;
-	tunables->mode_check_timestamp = now;
-
-	return ret;
-}
-
-static void set_new_param_set(unsigned int index,
-			struct cpufreq_interactive_tunables * tunables)
-{
-	unsigned long flags;
-
-	tunables->hispeed_freq = tunables->hispeed_freq_set[index];
-	tunables->go_hispeed_load = tunables->go_hispeed_load_set[index];
-	tunables->min_sample_time = tunables->min_sample_time_set[index];
-	tunables->timer_rate = tunables->timer_rate_set[index];
-
-	spin_lock_irqsave(&tunables->target_loads_lock, flags);
-	tunables->target_loads = tunables->target_loads_set[index];
-	tunables->ntarget_loads = tunables->ntarget_loads_set[index];
-	spin_unlock_irqrestore(&tunables->target_loads_lock, flags);
-
-	spin_lock_irqsave(&tunables->above_hispeed_delay_lock, flags);
-	tunables->above_hispeed_delay =
-		tunables->above_hispeed_delay_set[index];
-	tunables->nabove_hispeed_delay =
-		tunables->nabove_hispeed_delay_set[index];
-	spin_unlock_irqrestore(&tunables->above_hispeed_delay_lock, flags);
-
-	tunables->cur_param_index = index;
-}
-
-static void enter_mode(struct cpufreq_interactive_tunables * tunables)
-{
-	set_new_param_set(tunables->mode, tunables);
-	if(tunables->mode & SINGLE_MODE)
-		cluster0_min_freq = tunables->single_cluster0_min_freq;
-	if(tunables->mode & MULTI_MODE)
-		cluster0_min_freq = tunables->multi_cluster0_min_freq;
-	if(!hmp_boost) {
-		pr_debug("%s mp boost on", __func__);
-		(void)set_hmp_boost(1);
-		hmp_boost = true;
-	}
-
-	queue_work(mode_auto_change_minlock_wq, &mode_auto_change_minlock_work);
-}
-
-static void exit_mode(struct cpufreq_interactive_tunables * tunables)
-{
-	set_new_param_set(0, tunables);
-	cluster0_min_freq = 0;
-
-	if(hmp_boost) {
-		pr_debug("%s mp boost off", __func__);
-		(void)set_hmp_boost(0);
-		hmp_boost = false;
-	}
-
-	queue_work(mode_auto_change_minlock_wq, &mode_auto_change_minlock_work);
-}
-#endif
-
-static void cpufreq_interactive_timer(unsigned long data)
 {
 	u64 now;
 	unsigned int delta_time;
@@ -769,9 +634,10 @@ static void cpufreq_interactive_timer(unsigned long data)
 	cpu_load = loadadjfreq / ppol->target_freq;
 	tunables->boosted = tunables->boost_val || now < tunables->boostpulse_endtime;
 
-	if (cpu_load >= tunables->go_hispeed_load || tunables->boosted) {
-		if (ppol->target_freq < tunables->hispeed_freq &&
-		    (!tunables->fast_ramp_up || cpu_load <= MAX_LOCAL_LOAD)) {
+	if (tunables->ignore_hispeed_on_notif && is_notif) {
+		new_freq = choose_freq(ppol, loadadjfreq);
+	} else if (cpu_load >= tunables->go_hispeed_load || tunables->boosted) {
+		if (ppol->target_freq < tunables->hispeed_freq) {
 			new_freq = tunables->hispeed_freq;
 		} else {
 			new_freq = choose_freq(pcpu, loadadjfreq);
@@ -786,7 +652,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 			new_freq = tunables->hispeed_freq;
 	}
 
-	if ((!tunables->fast_ramp_up || cpu_load <= MAX_LOCAL_LOAD) &&
+	if ((!tunables->ignore_hispeed_on_notif || !is_notif) &&
 	    ppol->target_freq >= tunables->hispeed_freq &&
 	    new_freq > ppol->target_freq &&
 	    now - ppol->hispeed_validate_time <
@@ -1387,6 +1253,9 @@ static ssize_t store_##file_name(					\
 	return count;							\
 }
 show_store_one(max_freq_hysteresis);
+show_store_one(align_windows);
+show_store_one(ignore_hispeed_on_notif);
+show_store_one(fast_ramp_down);
 
 static ssize_t show_go_hispeed_load(struct cpufreq_interactive_tunables
 		*tunables, char *buf)
@@ -1983,6 +1852,9 @@ show_gov_pol_sys(cpu_util);
 show_gov_pol_sys(region_time_in_state);
 #endif
 show_store_gov_pol_sys(max_freq_hysteresis);
+show_store_gov_pol_sys(align_windows);
+show_store_gov_pol_sys(ignore_hispeed_on_notif);
+show_store_gov_pol_sys(fast_ramp_down);
 
 #define gov_sys_attr_rw(_name)						\
 static struct global_attr _name##_gov_sys =				\
@@ -2022,6 +1894,9 @@ gov_sys_pol_attr_rw(single_cluster0_min_freq);
 gov_sys_pol_attr_rw(multi_cluster0_min_freq);
 #endif
 gov_sys_pol_attr_rw(max_freq_hysteresis);
+gov_sys_pol_attr_rw(align_windows);
+gov_sys_pol_attr_rw(ignore_hispeed_on_notif);
+gov_sys_pol_attr_rw(fast_ramp_down);
 
 static struct global_attr boostpulse_gov_sys =
 	__ATTR(boostpulse, 0200, NULL, store_boostpulse_gov_sys);
@@ -2076,6 +1951,9 @@ static struct attribute *interactive_attributes_gov_sys[] = {
 	&region_time_in_state_gov_sys.attr,
 #endif
 	&max_freq_hysteresis_gov_sys.attr,
+	&align_windows_gov_sys.attr,
+	&ignore_hispeed_on_notif_gov_sys.attr,
+	&fast_ramp_down_gov_sys.attr,
 	NULL,
 };
 
@@ -2117,6 +1995,9 @@ static struct attribute *interactive_attributes_gov_pol[] = {
 	&region_time_in_state_gov_pol.attr,
 #endif
 	&max_freq_hysteresis_gov_pol.attr,
+	&align_windows_gov_pol.attr,
+	&ignore_hispeed_on_notif_gov_pol.attr,
+	&fast_ramp_down_gov_pol.attr,
 	NULL,
 };
 
