@@ -747,8 +747,11 @@ void pm_get_active_wakeup_sources(char *pending_wakeup_source, size_t max)
 	rcu_read_lock();
 	len += snprintf(pending_wakeup_source, max, "Pending Wakeup Sources: ");
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
-		if (ws->active) {
-			len += snprintf(pending_wakeup_source + len, max,
+		if (ws->active && len < max) {
+			if (!active)
+				len += scnprintf(pending_wakeup_source, max,
+						"Pending Wakeup Sources: ");
+			len += scnprintf(pending_wakeup_source + len, max - len,
 				"%s ", ws->name);
 		}
 	}
