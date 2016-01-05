@@ -756,7 +756,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	spin_lock_irqsave(&speedchange_cpumask_lock, flags);
 	cpumask_set_cpu(data, &speedchange_cpumask);
 	spin_unlock_irqrestore(&speedchange_cpumask_lock, flags);
-	wake_up_process(speedchange_task);
+	wake_up_process_no_notif(speedchange_task);
 
 	goto rearm;
 
@@ -922,6 +922,39 @@ static void cpufreq_interactive_boost(struct cpufreq_interactive_tunables *tunab
 
 	spin_unlock_irqrestore(&speedchange_cpumask_lock, flags[0]);
 
+	if (anyboost)
+		wake_up_process_no_notif(speedchange_task);
+}
+
+static int load_change_callback(struct notifier_block *nb, unsigned long val,
+				void *data)
+{
+	unsigned long cpu = (unsigned long) data;
+	struct cpufreq_interactive_cpuinfo *pcpu = &per_cpu(cpuinfo, cpu);
+	struct cpufreq_interactive_tunables *tunables;
+
+	if (speedchange_task == current)
+		return 0;
+
+	if (pcpu->reject_notification)
+		return 0;
+
+	if (!down_read_trylock(&pcpu->enable_sem))
+		return 0;
+	if (!pcpu->governor_enabled) {
+		up_read(&pcpu->enable_sem);
+		return 0;
+	}
+	tunables = pcpu->policy->governor_data;
+	if (!tunables->use_sched_load || !tunables->use_migration_notif) {
+		up_read(&pcpu->enable_sem);
+		return 0;
+	}
+
+	trace_cpufreq_interactive_load_change(cpu);
+	del_timer(&pcpu->cpu_timer);
+	del_timer(&pcpu->cpu_slack_timer);
+	cpufreq_interactive_timer(cpu);
 
 	if (anyboost && speedchange_task)
 		wake_up_process(speedchange_task);
@@ -2443,6 +2476,9 @@ static int __init cpufreq_interactive_init(void)
 	pm_qos_add_notifier(PM_QOS_CLUSTER0_FREQ_MAX, &cpufreq_interactive_cluster0_max_qos_notifier);
 #endif
 #endif
+
+	/* NB: wake up so the thread does not look hung to the freezer */
+	wake_up_process_no_notif(speedchange_task);
 
 #ifdef CONFIG_MODE_AUTO_CHANGE
 	mode_auto_change_minlock_wq = alloc_workqueue("mode_auto_change_minlock_wq", WQ_HIGHPRI, 0);
