@@ -235,6 +235,8 @@ static struct cpufreq_interactive_tunables *tuned_parameters[NR_CPUS] = {NULL, }
 
 static struct attribute_group *get_sysfs_attr(void);
 
+#define DOWN_LOW_LOAD_THRESHOLD 5
+
 static void cpufreq_interactive_timer_resched(
 	struct cpufreq_interactive_cpuinfo *pcpu)
 {
