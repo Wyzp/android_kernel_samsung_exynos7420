@@ -32,8 +32,13 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 #include <linux/pm_qos.h>
-#include <linux/state_notifier.h>
-static struct notifier_block interactive_state_notif;
+#include <linux/powersuspend.h>
+#include <asm/cputime.h>
+#ifdef CONFIG_ANDROID
+#include <asm/uaccess.h>
+#include <linux/syscalls.h>
+#include <linux/android_aid.h>
+#endif
 
 #ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
 #include <mach/cpufreq.h>
@@ -74,6 +79,7 @@ static cpumask_t speedchange_cpumask;
 static spinlock_t speedchange_cpumask_lock;
 static struct mutex gov_lock;
 
+/* boolean for determining screen on/off state */
 static bool suspended = false;
 
 /* Target load.  Lower values result in higher CPU speeds. */
@@ -397,8 +403,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	cpu_load = loadadjfreq / pcpu->policy->cur;
 	tunables->boosted = tunables->boost_val || now < tunables->boostpulse_endtime;
 
-
-	if (cpu_load >= tunables->go_hispeed_load&& !suspended || tunables->boosted) {
+	if (cpu_load >= tunables->go_hispeed_load && !suspended || tunables->boosted) {
 		if (pcpu->policy->cur < tunables->hispeed_freq) {
 			new_freq = tunables->hispeed_freq;
 		} else {
@@ -1593,6 +1598,25 @@ static int state_notifier_callback(struct notifier_block *this,
 	return NOTIFY_OK;
 }
 
+static void interactive_early_suspend(struct power_suspend *handler)
+{
+	suspended = true;
+
+	return;
+}
+
+static void interactive_late_resume(struct power_suspend *handler)
+{
+	suspended = false;
+
+	return;
+}
+
+static struct power_suspend interactive_suspend = {
+	.suspend = interactive_early_suspend,
+	.resume = interactive_late_resume,
+};
+
 static int __init cpufreq_interactive_init(void)
 {
 	unsigned int i;
@@ -1610,10 +1634,7 @@ static int __init cpufreq_interactive_init(void)
 		spin_lock_init(&pcpu->target_freq_lock);
 		init_rwsem(&pcpu->enable_sem);
 	}
-
-	interactive_state_notif.notifier_call = state_notifier_callback;
-	if (state_register_client(&interactive_state_notif))
-		pr_err("Failed to register State notifier callback\n");
+	register_power_suspend(&interactive_suspend);
 
 	spin_lock_init(&speedchange_cpumask_lock);
 	mutex_init(&gov_lock);
