@@ -23,6 +23,7 @@
 #include <linux/init.h>
 #include <linux/nmi.h>
 #include <linux/exynos-ss.h>
+#include <linux/console.h>
 #include <asm/core_regs.h>
 #include "sched/sched.h"
 
@@ -138,7 +139,9 @@ void panic(const char *fmt, ...)
 #if defined(CONFIG_SOC_EXYNOS5422) || defined(CONFIG_SOC_EXYNOS5430)
 	show_exynos_cmu();
 #endif
+#if defined(CONFIG_SCHED_DEBUG)	
 	sysrq_sched_debug_show();
+#endif
 
 	/*
 	 * If we have crashed and we have a crash kernel loaded let it handle
@@ -163,6 +166,8 @@ void panic(const char *fmt, ...)
 	exynos_ss_post_panic();
 
 	bust_spinlocks(0);
+
+	console_flush_on_panic();
 
 	if (!panic_blink)
 		panic_blink = no_blink;

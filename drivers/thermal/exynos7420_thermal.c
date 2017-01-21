@@ -48,6 +48,42 @@
 #include <mach/exynos-pm.h>
 #include "cal_tmu7420.h"
 
+static unsigned int HOT_NORMAL_TEMP = 95;
+static unsigned int HOT_CRITICAL_TEMP = 110;
+
+static unsigned int MIF_TH_TEMP1 = 55;
+static unsigned int MIF_TH_TEMP2 = 95;
+
+static unsigned int GPU_TH_TEMP1 = 90;
+static unsigned int GPU_TH_TEMP2 = 95;
+static unsigned int GPU_TH_TEMP3 = 100;
+static unsigned int GPU_TH_TEMP4 = 105;
+static unsigned int GPU_TH_TEMP5 = 110;
+
+static unsigned int ISP_TH_TEMP1 = 85;
+static unsigned int ISP_TH_TEMP2 = 95;
+static unsigned int ISP_TH_TEMP3 = 100;
+static unsigned int ISP_TH_TEMP4 = 105;
+static unsigned int ISP_TH_TEMP5 = 110;
+
+module_param_named(tmu_cpu_normal, HOT_NORMAL_TEMP, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_cpu_critical, HOT_CRITICAL_TEMP, uint, S_IWUSR | S_IRUGO);
+
+module_param_named(tmu_mif_normal, MIF_TH_TEMP1, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_mif_hot, MIF_TH_TEMP2, uint, S_IWUSR | S_IRUGO);
+
+module_param_named(tmu_gpu_temp1, GPU_TH_TEMP1, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_gpu_temp2, GPU_TH_TEMP2, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_gpu_temp3, GPU_TH_TEMP3, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_gpu_temp4, GPU_TH_TEMP4, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_gpu_temp5, GPU_TH_TEMP5, uint, S_IWUSR | S_IRUGO);
+
+module_param_named(tmu_isp_temp1, ISP_TH_TEMP1, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_isp_temp2, ISP_TH_TEMP2, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_isp_temp3, ISP_TH_TEMP3, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_isp_temp4, ISP_TH_TEMP4, uint, S_IWUSR | S_IRUGO);
+module_param_named(tmu_isp_temp5, ISP_TH_TEMP5, uint, S_IWUSR | S_IRUGO);
+
 #ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
 static struct cpumask mp_cluster_cpus[CL_END];
 #endif
@@ -109,6 +145,10 @@ struct thermal_sensor_conf {
 	void *private_data;
 };
 
+bool is_cpu_thermal = false;
+static int enter_little_thermal_temp = 60;
+static int exit_little_thermal_temp = 55;
+
 struct exynos_thermal_zone {
 	enum thermal_device_mode mode;
 	struct thermal_zone_device *therm_dev;
@@ -150,6 +190,31 @@ static void __init init_mp_cpumask_set(void)
 	 }
 }
 #endif
+
+static ssize_t show_little_thermal_temp(struct kobject *kobj,
+				struct attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n", enter_little_thermal_temp);
+}
+
+static ssize_t store_little_thermal_temp(struct kobject *kobj, struct attribute *attr,
+					const char *buf, size_t count)
+{
+	int thermal_temp;
+
+	if (!sscanf(buf, "%8d", &thermal_temp))
+		return -EINVAL;
+
+	if (thermal_temp < 40 || thermal_temp > 90) {
+		pr_err("%s: invalid value (%d)\n", __func__, thermal_temp);
+		return -EINVAL;
+	}
+
+	enter_little_thermal_temp = thermal_temp;
+	exit_little_thermal_temp = thermal_temp - 5;
+
+	return count;
+}
 
 /* Get mode callback functions for thermal zone */
 static int exynos_get_mode(struct thermal_zone_device *thermal,
@@ -593,7 +658,10 @@ static int __ref exynos_throttle_cpu_hotplug(struct thermal_zone_device *thermal
 							__func__);
 			else
 				is_cpu_hotplugged_out = true;
-		}
+		} else if (cur_temp > enter_little_thermal_temp)
+			is_cpu_thermal = true;
+		else if (cur_temp < exit_little_thermal_temp)
+			is_cpu_thermal = false;
 	}
 
 	return ret;
@@ -660,6 +728,10 @@ static void exynos_report_trigger(void)
 	kobject_uevent_env(&th_zone->therm_dev->device.kobj, KOBJ_CHANGE, envp);
 }
 
+static struct global_attr little_thermal_temp =
+		__ATTR(little_thermal_temp, S_IRUGO | S_IWUSR,
+			show_little_thermal_temp, store_little_thermal_temp);
+
 /* Register with the in-kernel thermal management */
 static int exynos_register_thermal(struct thermal_sensor_conf *sensor_conf)
 {
@@ -718,6 +790,12 @@ static int exynos_register_thermal(struct thermal_sensor_conf *sensor_conf)
 		goto err_unregister;
 	}
 	th_zone->mode = THERMAL_DEVICE_ENABLED;
+
+	ret = sysfs_create_file(power_kobj, &little_thermal_temp.attr);
+	if (ret) {
+		pr_err("%s: failed to create little thermal temp sysfs interface\n",
+			__func__);
+	}
 
 	pr_info("Exynos: Kernel Thermal management registered\n");
 

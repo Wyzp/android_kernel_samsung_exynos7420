@@ -116,6 +116,7 @@ EXPORT_SYMBOL_GPL(ehci_cf_port_reset_rwsem);
 #define HUB_DEBOUNCE_STEP	  25
 #define HUB_DEBOUNCE_STABLE	 100
 
+static void hub_release(struct kref *kref);
 static int usb_reset_and_verify_device(struct usb_device *udev);
 
 static inline char *portspeed(struct usb_hub *hub, int portstatus)
@@ -140,6 +141,10 @@ struct usb_hub *usb_hub_to_struct_hub(struct usb_device *hdev)
 
 static int usb_device_supports_lpm(struct usb_device *udev)
 {
+	/* Some devices have trouble with LPM */
+	if (udev->quirks & USB_QUIRK_NO_LPM)
+		return 0;
+
 	/* USB 2.1 (and greater) devices indicate LPM support through
 	 * their USB 2.0 Extended Capabilities BOS descriptor.
 	 */
@@ -509,7 +514,8 @@ static void led_work (struct work_struct *work)
 		changed++;
 	}
 	if (changed)
-		schedule_delayed_work(&hub->leds, LED_CYCLE_PERIOD);
+		queue_delayed_work(system_power_efficient_wq,
+				&hub->leds, LED_CYCLE_PERIOD);
 }
 
 /* use a short timeout for hub/port status fetches */
@@ -1085,7 +1091,8 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 		if (type == HUB_INIT) {
 			delay = hub_power_on(hub, false);
 			PREPARE_DELAYED_WORK(&hub->init_work, hub_init_func2);
-			schedule_delayed_work(&hub->init_work,
+			queue_delayed_work(system_power_efficient_wq,
+					&hub->init_work,
 					msecs_to_jiffies(delay));
 
 			/* Suppress autosuspend until init is done */
@@ -1246,7 +1253,8 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 		/* Don't do a long sleep inside a workqueue routine */
 		if (type == HUB_INIT2) {
 			PREPARE_DELAYED_WORK(&hub->init_work, hub_init_func3);
-			schedule_delayed_work(&hub->init_work,
+			queue_delayed_work(system_power_efficient_wq,
+					&hub->init_work,
 					msecs_to_jiffies(delay));
 			device_unlock(hub->intfdev);
 			return;		/* Continues at init3: below */
@@ -1261,7 +1269,8 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 	if (status < 0)
 		dev_err(hub->intfdev, "activate --> %d\n", status);
 	if (hub->has_indicators && blinkenlights)
-		schedule_delayed_work(&hub->leds, LED_CYCLE_PERIOD);
+		queue_delayed_work(system_power_efficient_wq,
+				&hub->leds, LED_CYCLE_PERIOD);
 
 	/* Scan all ports that need attention */
 	kick_khubd(hub);
@@ -3338,10 +3347,10 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 		dev_dbg(hub->intfdev, "can't resume port %d, status %d\n",
 				port1, status);
 	} else {
-		/* drive resume for at least 20 msec */
+		/* drive resume for USB_RESUME_TIMEOUT msec */
 		dev_dbg(&udev->dev, "usb %sresume\n",
 				(PMSG_IS_AUTO(msg) ? "auto-" : ""));
-		msleep(25);
+		msleep(USB_RESUME_TIMEOUT);
 
 		/* Virtual root hubs can trigger on GET_PORT_STATUS to
 		 * stop resume signaling.  Then finish the resume
@@ -4219,7 +4228,13 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 						r = -EPROTO;
 					break;
 				}
-				if (r == 0)
+				/*
+				 * Some devices time out if they are powered on
+				 * when already connected. They need a second
+				 * reset. But only on the first attempt,
+				 * lest we get into a time out/reset loop
+				 */
+				if (r == 0  || (r == -ETIMEDOUT && j == 0))
 					break;
 			}
 			udev->descriptor.bMaxPacketSize0 =
@@ -4347,6 +4362,8 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 		goto fail;
 	}
 
+	usb_detect_quirks(udev);
+
 	if (udev->wusb == 0 && le16_to_cpu(udev->descriptor.bcdUSB) >= 0x0201) {
 		retval = usb_get_bos_descriptor(udev);
 		if (!retval) {
@@ -4386,7 +4403,8 @@ check_highspeed (struct usb_hub *hub, struct usb_device *udev, int port1)
 		/* hub LEDs are probably harder to miss than syslog */
 		if (hub->has_indicators) {
 			hub->indicator[port1-1] = INDICATOR_GREEN_BLINK;
-			schedule_delayed_work (&hub->leds, 0);
+			queue_delayed_work(system_power_efficient_wq,
+					&hub->leds, 0);
 		}
 	}
 	kfree(qual);
@@ -4602,7 +4620,6 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 		if (status < 0)
 			goto loop;
 
-		usb_detect_quirks(udev);
 		if (udev->quirks & USB_QUIRK_DELAY_INIT)
 			msleep(1000);
 
@@ -4630,7 +4647,9 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 				if (hub->has_indicators) {
 					hub->indicator[port1-1] =
 						INDICATOR_AMBER_BLINK;
-					schedule_delayed_work (&hub->leds, 0);
+					queue_delayed_work(
+						system_power_efficient_wq,
+						&hub->leds, 0);
 				}
 				status = -ENOTCONN;	/* Don't retry */
 				goto loop_disable;

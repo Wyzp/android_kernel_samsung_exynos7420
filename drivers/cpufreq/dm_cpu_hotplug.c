@@ -70,7 +70,7 @@ static bool do_disable_hotplug = false;
 static bool do_hotplug_out = false;
 static int cluster1_hotplugged = 0;
 static int cluster0_hotplug_in = 0;
-#define DEFAULT_NR_RUN_THRESHD	5
+#define DEFAULT_NR_RUN_THRESHD	200
 #define DEFAULT_NR_RUN_RANGE	2
 static unsigned int nr_running_threshold = DEFAULT_NR_RUN_THRESHD;
 static unsigned int nr_running_range = DEFAULT_NR_RUN_RANGE;
@@ -94,6 +94,8 @@ enum hotplug_cmd {
 	CMD_CLUST0_ONE_IN,
 	CMD_CLUST0_ONE_OUT,
 	CMD_SLEEP_PREPARE,
+	CMD_OFFLINE,
+	CMD_ONLINE,
 };
 
 static int on_run(void *data);
@@ -630,10 +632,7 @@ static int __ref __cpu_hotplug(bool out_flag, enum hotplug_cmd cmd)
 						}
 					}
 				} else {
-					for (i = 1; i < setup_max_cpus; i++) {
-						if (do_hotplug_out && i >= NR_CLUST0_CPUS)
-							goto blk_out;
-
+					for (i = 1; i < NR_CLUST0_CPUS; i++) { 
 						if (!cpu_online(i)) {
 							ret = cpu_up(i);
 							if (ret)
@@ -910,7 +909,7 @@ static struct notifier_block exynos_dm_hotplug_reboot_nb = {
 static void update_nr_running_count(void)
 {
 	int ret = 0;
-	cur_nr_running = nr_running();
+	cur_nr_running = (avg_nr_running() * 100) >> FSHIFT;
 
 	if (cur_nr_running >= nr_running_threshold) {
 		if (nr_running_count < nr_running_range)
@@ -1093,7 +1092,10 @@ static int on_run(void *data)
 
 	while (!kthread_should_stop()) {
 		calc_load();
-		exe_cmd = diagnose_condition();
+		if (unlikely(exe_cmd == CMD_ONLINE || exe_cmd == CMD_OFFLINE))
+				exe_cmd = CMD_CLUST1_OUT;
+			else
+				exe_cmd = diagnose_condition();
 
 		if (exynos_dm_hotplug_disabled()) {
 #ifdef DM_HOTPLUG_DEBUG

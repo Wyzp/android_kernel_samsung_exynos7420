@@ -16,6 +16,9 @@
 #include <linux/sysfs.h>
 #include <linux/balloon_compaction.h>
 #include <linux/page-isolation.h>
+#ifdef CONFIG_STATE_NOTIFIER
+#include <linux/state_notifier.h>
+#endif
 #include "internal.h"
 
 #ifdef CONFIG_COMPACTION
@@ -419,19 +422,44 @@ static void acct_isolated(struct zone *zone, bool locked, struct compact_control
 	}
 }
 
-/* Similar to reclaim, but different enough that they don't share logic */
-static bool too_many_isolated(struct zone *zone)
+static bool __too_many_isolated(struct zone *zone, int safe)
 {
 	unsigned long active, inactive, isolated;
 
-	inactive = zone_page_state(zone, NR_INACTIVE_FILE) +
-					zone_page_state(zone, NR_INACTIVE_ANON);
-	active = zone_page_state(zone, NR_ACTIVE_FILE) +
-					zone_page_state(zone, NR_ACTIVE_ANON);
-	isolated = zone_page_state(zone, NR_ISOLATED_FILE) +
-					zone_page_state(zone, NR_ISOLATED_ANON);
+	if (safe) {
+		inactive = zone_page_state_snapshot(zone, NR_INACTIVE_FILE) +
+			zone_page_state_snapshot(zone, NR_INACTIVE_ANON);
+		active = zone_page_state_snapshot(zone, NR_ACTIVE_FILE) +
+			zone_page_state_snapshot(zone, NR_ACTIVE_ANON);
+		isolated = zone_page_state_snapshot(zone, NR_ISOLATED_FILE) +
+			zone_page_state_snapshot(zone, NR_ISOLATED_ANON);
+	} else {
+		inactive = zone_page_state(zone, NR_INACTIVE_FILE) +
+			zone_page_state(zone, NR_INACTIVE_ANON);
+		active = zone_page_state(zone, NR_ACTIVE_FILE) +
+			zone_page_state(zone, NR_ACTIVE_ANON);
+		isolated = zone_page_state(zone, NR_ISOLATED_FILE) +
+			zone_page_state(zone, NR_ISOLATED_ANON);
+	}
 
 	return isolated > (inactive + active) / 2;
+}
+
+/* Similar to reclaim, but different enough that they don't share logic */
+static bool too_many_isolated(struct compact_control *cc)
+{
+	/*
+	 * __too_many_isolated(safe=0) is fast but inaccurate, because it
+	 * doesn't account for the vm_stat_diff[] counters.  So if it looks
+	 * like too_many_isolated() is about to return true, fall back to the
+	 * slower, more accurate zone_page_state_snapshot().
+	 */
+	if (unlikely(__too_many_isolated(cc->zone, 0))) {
+		if (cc->sync)
+			return __too_many_isolated(cc->zone, 1);
+	}
+
+	return false;
 }
 
 /**
@@ -472,7 +500,7 @@ isolate_migratepages_range(struct zone *zone, struct compact_control *cc,
 	 * list by either parallel reclaimers or compaction. If there are,
 	 * delay for some time until fewer pages are isolated
 	 */
-	while (unlikely(too_many_isolated(zone))) {
+	while (unlikely(too_many_isolated(cc))) {
 		/* async migration should just abort */
 		if (!cc->sync)
 			return 0;
@@ -881,7 +909,7 @@ static int compact_finished(struct zone *zone,
 			return COMPACT_PARTIAL;
 
 		/* Job done if allocation would set block type */
-		if (cc->order >= pageblock_order && area->nr_free)
+		if (order >= pageblock_order && area->nr_free)
 			return COMPACT_PARTIAL;
 	}
 
@@ -1110,6 +1138,28 @@ unsigned long try_to_compact_pages(struct zonelist *zonelist,
 	return rc;
 }
 
+#ifdef CONFIG_STATE_NOTIFIER
+static void compact_nodes(void);
+
+static int state_notifier_callback(struct notifier_block *this,
+				unsigned long event, void *data)
+{
+	switch (event) {
+		case STATE_NOTIFIER_SUSPEND:
+			compact_nodes();
+			break;
+		default:
+			break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block compact_notifier_block = {
+	.notifier_call = state_notifier_callback,
+	.priority = -1,
+};
+#endif
 
 /* Compact all zones within a node */
 static void __compact_pgdat(pg_data_t *pgdat, struct compact_control *cc)
@@ -1242,5 +1292,14 @@ void compaction_unregister_node(struct node *node)
 	return device_remove_file(&node->dev, &dev_attr_compact);
 }
 #endif /* CONFIG_SYSFS && CONFIG_NUMA */
+
+#ifdef CONFIG_STATE_NOTIFIER
+static int  __init mem_compaction_init(void)
+{
+	state_register_client(&compact_notifier_block);
+	return 0;
+}
+late_initcall(mem_compaction_init);
+#endif
 
 #endif /* CONFIG_COMPACTION */

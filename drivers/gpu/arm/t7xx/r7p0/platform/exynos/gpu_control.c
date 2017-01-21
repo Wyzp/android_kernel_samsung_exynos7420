@@ -23,6 +23,14 @@
 #include "mali_kbase_platform.h"
 #include "gpu_dvfs_handler.h"
 #include "gpu_control.h"
+#include <linux/state_notifier.h>
+
+static struct notifier_block gpu_state_notif;
+static bool suspended = false;
+
+unsigned int gpu_min_override = 100;
+unsigned int gpu_max_override = 852;
+unsigned int gpu_max_override_screen_off = 0;
 
 static struct gpu_control_ops *ctr_ops;
 
@@ -111,6 +119,17 @@ int gpu_control_set_clock(struct kbase_device *kbdev, int clock)
 		return -ENODEV;
 	}
 
+	if (clock < gpu_min_override)
+		clock = gpu_min_override;
+	if (!suspended || gpu_max_override_screen_off == 0) {
+		if (clock > gpu_max_override)
+			clock = gpu_max_override;
+	} else {
+		if (clock > gpu_max_override_screen_off)
+			clock = gpu_max_override_screen_off;
+	}
+	
+
 	if (platform->dvs_is_enabled) {
 		GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u,
 			"%s: can't set clock in the dvs mode (requested clock %d)\n", __func__, clock);
@@ -195,6 +214,26 @@ int gpu_control_disable_clock(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_DVFS */
 
 	return ret;
+}
+
+static int state_notifier_callback(struct notifier_block *this,
+				unsigned long event, void *data)
+{
+	if (!suspended)
+		return NOTIFY_OK;
+
+	switch (event) {
+		case STATE_NOTIFIER_ACTIVE:
+			suspended = false;
+			break;
+		case STATE_NOTIFIER_SUSPEND:
+			suspended = true;
+			break;
+		default:
+			break;
+	}
+
+	return NOTIFY_OK;
 }
 
 int gpu_control_is_power_on(struct kbase_device *kbdev)
@@ -282,6 +321,10 @@ int gpu_control_module_init(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_RT_PM */
 
 	ctr_ops = gpu_get_control_ops();
+
+	gpu_state_notif.notifier_call = state_notifier_callback;
+	if (state_register_client(&gpu_state_notif))
+		pr_err("Failed to register State notifier callback\n");
 
 	if (gpu_power_init(kbdev) < 0) {
 		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: failed to initialize power\n", __func__);

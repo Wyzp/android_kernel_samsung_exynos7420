@@ -159,13 +159,12 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 
 	read_lock_irqsave(&tasklist_lock, flags);
 
-	do_each_thread(g, p) {
+	for_each_process_thread(g, p) {
 		if (!p->on_rq || task_cpu(p) != rq_cpu)
 			continue;
 
 		print_task(m, rq, p);
-	} while_each_thread(g, p);
-
+	}
 	read_unlock_irqrestore(&tasklist_lock, flags);
 }
 
@@ -284,6 +283,9 @@ do {									\
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", #x, SPLIT_NS(rq->x))
 
 	P(nr_running);
+	SEQ_printf(m, " .%-30s: %d.%03d \n", "ave_nr_running",
+		rq->ave_nr_running / FIXED_1,
+		((rq->ave_nr_running % FIXED_1) * 1000) / FIXED_1);
 	SEQ_printf(m, "  .%-30s: %lu\n", "load",
 		   rq->load.weight);
 	P(nr_switches);

@@ -1630,7 +1630,8 @@ static int unix_dgram_sendmsg(struct kiocb *kiocb, struct socket *sock,
 				 MAX_SKB_FRAGS * PAGE_SIZE);
 
 	skb = sock_alloc_send_pskb(sk, len - data_len, data_len,
-				   msg->msg_flags & MSG_DONTWAIT, &err);
+				   msg->msg_flags & MSG_DONTWAIT, &err,
+				   PAGE_ALLOC_COSTLY_ORDER);
 	if (skb == NULL)
 		goto out;
 
@@ -1715,7 +1716,12 @@ restart_locked:
 			goto out_unlock;
 	}
 
-	if (unlikely(unix_peer(other) != sk && unix_recvq_full(other))) {
+	/* other == sk && unix_peer(other) != sk if
+	 * - unix_peer(sk) == NULL, destination address bound to sk
+	 * - unix_peer(sk) == sk by time of get but disconnected before lock
+	 */
+	if (other != sk &&
+	    unlikely(unix_peer(other) != sk && unix_recvq_full(other))) {
 		if (timeo) {
 			timeo = unix_wait_for_peer(other, timeo);
 
@@ -1816,7 +1822,7 @@ static int unix_stream_sendmsg(struct kiocb *kiocb, struct socket *sock,
 		goto pipe_err;
 
 	while (sent < len) {
-		size = len-sent;
+		size = len - sent;
 
 		/* Keep two messages in the pipe so it schedules better */
 		size = min_t(int, size, (sk->sk_sndbuf >> 1) - 64);
@@ -1827,8 +1833,8 @@ static int unix_stream_sendmsg(struct kiocb *kiocb, struct socket *sock,
 		data_len = max_t(int, 0, size - SKB_MAX_HEAD(0));
 
 		skb = sock_alloc_send_pskb(sk, size - data_len, data_len,
-			msg->msg_flags & MSG_DONTWAIT, &err);
-
+					   msg->msg_flags & MSG_DONTWAIT, &err,
+					   get_order(UNIX_SKB_FRAGS_SZ));
 		if (!skb)
 			goto out_err;
 
@@ -1845,7 +1851,7 @@ static int unix_stream_sendmsg(struct kiocb *kiocb, struct socket *sock,
 		skb->data_len = data_len;
 		skb->len = size;
 		err = skb_copy_datagram_from_iovec(skb, 0, msg->msg_iov,
-			sent, size);
+						   sent, size);
 		if (err) {
 			kfree_skb(skb);
 			goto out_err;
@@ -2099,14 +2105,7 @@ static int unix_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
 		memset(&tmp_scm, 0, sizeof(tmp_scm));
 	}
 
-	err = mutex_lock_interruptible(&u->readlock);
-	if (unlikely(err)) {
-		/* recvmsg() in non blocking mode is supposed to return -EAGAIN
-		 * sk_rcvtimeo is not honored by mutex_lock_interruptible()
-		 */
-		err = noblock ? -EAGAIN : -ERESTARTSYS;
-		goto out;
-	}
+	mutex_lock(&u->readlock);
 
 	do {
 		int chunk;
@@ -2138,12 +2137,13 @@ again:
 
 			timeo = unix_stream_data_wait(sk, timeo, last);
 
-			if (signal_pending(current)
-			    ||  mutex_lock_interruptible(&u->readlock)) {
+			if (signal_pending(current)) {
 				err = sock_intr_errno(timeo);
+				scm_destroy(siocb->scm);
 				goto out;
 			}
 
+			mutex_lock(&u->readlock);
 			continue;
  unlock:
 			unix_state_unlock(sk);
@@ -2181,7 +2181,7 @@ again:
 
 		chunk = min_t(unsigned int, unix_skb_len(skb) - skip, size);
 		if (skb_copy_datagram_iovec(skb, UNIXCB(skb).consumed + skip,
-			msg->msg_iov, chunk)) {
+					    msg->msg_iov, chunk)) {
 			if (copied == 0)
 				copied = -EFAULT;
 			break;
@@ -2212,8 +2212,20 @@ again:
 			if (UNIXCB(skb).fp)
 				siocb->scm->fp = scm_fp_dup(UNIXCB(skb).fp);
 
-			sk_peek_offset_fwd(sk, chunk);
+			if (skip) {
+				sk_peek_offset_fwd(sk, chunk);
+				skip -= chunk;
+			}
 
+			if (UNIXCB(skb).fp)
+				break;
+
+			last = skb;
+			unix_state_lock(sk);
+			skb = skb_peek_next(skb, &sk->sk_receive_queue);
+			if (skb)
+				goto again;
+			unix_state_unlock(sk);
 			break;
 		}
 	} while (size);

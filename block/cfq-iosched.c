@@ -30,9 +30,7 @@ static const int cfq_back_penalty = 2;
 static const int cfq_slice_sync = HZ / 10;
 static int cfq_slice_async = HZ / 25;
 static const int cfq_slice_async_rq = 2;
-/* Explicitly set cfq_slice_idle to 0 */
 static int cfq_slice_idle = 0;
-/* static int cfq_slice_idle = HZ / 125; */
 static int cfq_group_idle = HZ / 125;
 static const int cfq_target_latency = HZ * 3/10; /* 300 ms */
 static const int cfq_hist_divisor = 4;
@@ -2818,7 +2816,6 @@ static struct request *cfq_check_fifo(struct cfq_queue *cfqq)
 	if (time_before(jiffies, rq_fifo_time(rq)))
 		rq = NULL;
 
-	cfq_log_cfqq(cfqq->cfqd, cfqq, "fifo=%p", rq);
 	return rq;
 }
 
@@ -3192,6 +3189,9 @@ static bool cfq_may_dispatch(struct cfq_data *cfqd, struct cfq_queue *cfqq)
 {
 	unsigned int max_dispatch;
 
+	if (cfq_cfqq_must_dispatch(cfqq))
+		return true;
+
 	/*
 	 * Drain async requests before we start sync IO
 	 */
@@ -3292,15 +3292,20 @@ static bool cfq_dispatch_request(struct cfq_data *cfqd, struct cfq_queue *cfqq)
 
 	BUG_ON(RB_EMPTY_ROOT(&cfqq->sort_list));
 
+	rq = cfq_check_fifo(cfqq);
+	if (rq)
+		cfq_mark_cfqq_must_dispatch(cfqq);
+
 	if (!cfq_may_dispatch(cfqd, cfqq))
 		return false;
 
 	/*
 	 * follow expired path, else get first next available
 	 */
-	rq = cfq_check_fifo(cfqq);
 	if (!rq)
 		rq = cfqq->next_rq;
+	else
+		cfq_log_cfqq(cfqq->cfqd, cfqq, "fifo=%p", rq);
 
 	/*
 	 * insert request into driver dispatch list
@@ -3438,14 +3443,14 @@ static void cfq_exit_icq(struct io_cq *icq)
 	struct cfq_io_cq *cic = icq_to_cic(icq);
 	struct cfq_data *cfqd = cic_to_cfqd(cic);
 
-	if (cic->cfqq[BLK_RW_ASYNC]) {
-		cfq_exit_cfqq(cfqd, cic->cfqq[BLK_RW_ASYNC]);
-		cic->cfqq[BLK_RW_ASYNC] = NULL;
+	if (cic_to_cfqq(cic, false)) {
+		cfq_exit_cfqq(cfqd, cic_to_cfqq(cic, false));
+		cic_set_cfqq(cic, NULL, false);
 	}
 
-	if (cic->cfqq[BLK_RW_SYNC]) {
-		cfq_exit_cfqq(cfqd, cic->cfqq[BLK_RW_SYNC]);
-		cic->cfqq[BLK_RW_SYNC] = NULL;
+	if (cic_to_cfqq(cic, true)) {
+		cfq_exit_cfqq(cfqd, cic_to_cfqq(cic, true));
+		cic_set_cfqq(cic, NULL, true);
 	}
 }
 
@@ -3504,18 +3509,14 @@ static void check_ioprio_changed(struct cfq_io_cq *cic, struct bio *bio)
 	if (unlikely(!cfqd) || likely(cic->ioprio == ioprio))
 		return;
 
-	cfqq = cic->cfqq[BLK_RW_ASYNC];
+	cfqq = cic_to_cfqq(cic, false);
 	if (cfqq) {
-		struct cfq_queue *new_cfqq;
-		new_cfqq = cfq_get_queue(cfqd, BLK_RW_ASYNC, cic, bio,
-					 GFP_ATOMIC);
-		if (new_cfqq) {
-			cic->cfqq[BLK_RW_ASYNC] = new_cfqq;
-			cfq_put_queue(cfqq);
-		}
+		cfq_put_queue(cfqq);
+		cfqq = cfq_get_queue(cfqd, BLK_RW_ASYNC, cic, bio, GFP_ATOMIC);
+		cic_set_cfqq(cic, cfqq, false);
 	}
 
-	cfqq = cic->cfqq[BLK_RW_SYNC];
+	cfqq = cic_to_cfqq(cic, true);
 	if (cfqq)
 		cfq_mark_cfqq_prio_changed(cfqq);
 
@@ -3590,6 +3591,11 @@ retry:
 
 	blkcg = bio_blkcg(bio);
 	cfqg = cfq_lookup_create_cfqg(cfqd, blkcg);
+	if (!cfqg) {
+		cfqq = &cfqd->oom_cfqq;
+		goto out;
+	}
+
 	cfqq = cic_to_cfqq(cic, is_sync);
 
 	/*
@@ -3626,7 +3632,7 @@ retry:
 		} else
 			cfqq = &cfqd->oom_cfqq;
 	}
-
+out:
 	if (new_cfqq)
 		kmem_cache_free(cfq_pool, new_cfqq);
 
@@ -3656,27 +3662,33 @@ static struct cfq_queue *
 cfq_get_queue(struct cfq_data *cfqd, bool is_sync, struct cfq_io_cq *cic,
 	      struct bio *bio, gfp_t gfp_mask)
 {
-	const int ioprio_class = IOPRIO_PRIO_CLASS(cic->ioprio);
-	const int ioprio = IOPRIO_PRIO_DATA(cic->ioprio);
-	struct cfq_queue **async_cfqq = NULL;
-	struct cfq_queue *cfqq = NULL;
+	int ioprio_class = IOPRIO_PRIO_CLASS(cic->ioprio);
+	int ioprio = IOPRIO_PRIO_DATA(cic->ioprio);
+	struct cfq_queue **async_cfqq;
+	struct cfq_queue *cfqq;
 
 	if (!is_sync) {
+		if (!ioprio_valid(cic->ioprio)) {
+			struct task_struct *tsk = current;
+			ioprio = task_nice_ioprio(tsk);
+			ioprio_class = task_nice_ioclass(tsk);
+		}
 		async_cfqq = cfq_async_queue_prio(cfqd, ioprio_class, ioprio);
 		cfqq = *async_cfqq;
+		if (cfqq)
+			goto out;
 	}
 
-	if (!cfqq)
-		cfqq = cfq_find_alloc_queue(cfqd, is_sync, cic, bio, gfp_mask);
+	cfqq = cfq_find_alloc_queue(cfqd, is_sync, cic, bio, gfp_mask);
 
 	/*
 	 * pin the queue now that it's allocated, scheduler exit will prune it
 	 */
-	if (!is_sync && !(*async_cfqq)) {
+	if (!is_sync && cfqq != &cfqd->oom_cfqq) {
 		cfqq->ref++;
 		*async_cfqq = cfqq;
 	}
-
+out:
 	cfqq->ref++;
 	return cfqq;
 }
@@ -3799,7 +3811,7 @@ cfq_should_preempt(struct cfq_data *cfqd, struct cfq_queue *new_cfqq,
 	 * if the new request is sync, but the currently running queue is
 	 * not, let the sync request have priority.
 	 */
-	if (rq_is_sync(rq) && !cfq_cfqq_sync(cfqq))
+	if (rq_is_sync(rq) && !cfq_cfqq_sync(cfqq) && !cfq_cfqq_must_dispatch(cfqq))
 		return true;
 
 	if (new_cfqq->cfqg != cfqq->cfqg)
@@ -4220,6 +4232,8 @@ cfq_set_request(struct request_queue *q, struct request *rq, struct bio *bio,
 new_queue:
 	cfqq = cic_to_cfqq(cic, is_sync);
 	if (!cfqq || cfqq == &cfqd->oom_cfqq) {
+		if (cfqq)
+			cfq_put_queue(cfqq);
 		cfqq = cfq_get_queue(cfqd, is_sync, cic, bio, gfp_mask);
 		cic_set_cfqq(cic, cfqq, is_sync);
 	} else {
@@ -4450,7 +4464,7 @@ static int cfq_init_queue(struct request_queue *q, struct elevator_type *e)
 	cfqd->cfq_slice[1] = cfq_slice_sync;
 	cfqd->cfq_target_latency = cfq_target_latency;
 	cfqd->cfq_slice_async_rq = cfq_slice_async_rq;
-	cfqd->cfq_slice_idle = cfq_slice_idle;
+	cfqd->cfq_slice_idle = blk_queue_nonrot(q) ? 0 : cfq_slice_idle; 
 	cfqd->cfq_max_async_dispatch = cfq_max_async_dispatch;
 	cfqd->cfq_throttle_async = cfq_throttle_async;
 	cfqd->cfq_group_idle = cfq_group_idle;
@@ -4467,6 +4481,18 @@ out_free:
 	kfree(cfqd);
 	kobject_put(&eq->kobj);
 	return ret;
+}
+
+static void cfq_registered_queue(struct request_queue *q)
+{
+	struct elevator_queue *e = q->elevator;
+	struct cfq_data *cfqd = e->elevator_data;
+
+	/*
+	 * Default to IOPS mode with no idling for SSDs
+	 */
+	if (blk_queue_nonrot(q))
+		cfqd->cfq_slice_idle = 0;
 }
 
 /*
@@ -4590,6 +4616,7 @@ static struct elevator_type iosched_cfq = {
 		.elevator_may_queue_fn =	cfq_may_queue,
 		.elevator_init_fn =		cfq_init_queue,
 		.elevator_exit_fn =		cfq_exit_queue,
+		.elevator_registered_fn =	cfq_registered_queue,
 	},
 	.icq_size	=	sizeof(struct cfq_io_cq),
 	.icq_align	=	__alignof__(struct cfq_io_cq),
@@ -4622,8 +4649,7 @@ static int __init cfq_init(void)
 	/* Do not touch cfq_slice_idle if it is zero */
 	/*
 	if (!cfq_slice_idle)
-		cfq_slice_idle = 1;
-         */
+		cfq_slice_idle = 0;
 
 #ifdef CONFIG_CFQ_GROUP_IOSCHED
 	if (!cfq_group_idle)

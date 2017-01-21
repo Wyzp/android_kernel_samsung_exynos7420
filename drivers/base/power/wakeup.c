@@ -21,11 +21,40 @@
 
 #include "power.h"
 
+#include <linux/moduleparam.h>
+
+static bool enable_sensorhub_wl = true;
+module_param(enable_sensorhub_wl, bool, 0644);
+
+static bool enable_ssp_wl = true;
+module_param(enable_ssp_wl, bool, 0644);
+
+static bool enable_bcm4773_wl = true;
+module_param(enable_bcm4773_wl, bool, 0644);
+
+static bool enable_wlan_rx_wake_wl = true;
+module_param(enable_wlan_rx_wake_wl, bool, 0644);
+
+static bool enable_wlan_ctrl_wake_wl = true;
+module_param(enable_wlan_ctrl_wake_wl, bool, 0644);
+
+static bool enable_wlan_wake_wl = true;
+module_param(enable_wlan_wake_wl, bool, 0644);
+
+static bool enable_power_manager_service_wl = true;
+module_param(enable_power_manager_service_wl, bool, 0644);
+
+static bool enable_bluedroid_timer_wl = true;
+module_param(enable_bluedroid_timer_wl, bool, 0644);
+
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
  * if wakeup events are registered during or immediately before the transition.
  */
 bool events_check_enabled __read_mostly;
+
+/* If set and the system is suspending, terminate the suspend. */
+static bool pm_abort_suspend __read_mostly;
 
 /*
  * Combined counters of registered wakeup events and wakeup events in progress.
@@ -384,6 +413,30 @@ EXPORT_SYMBOL_GPL(device_set_wakeup_enable);
 static void wakeup_source_activate(struct wakeup_source *ws)
 {
 	unsigned int cec;
+
+	if (!enable_sensorhub_wl && !strcmp(ws->name, "ssp_sensorhub_wake_lock"))
+		return;
+
+	if (!enable_ssp_wl && !strcmp(ws->name, "ssp_wake_lock"))
+		return;
+
+	if (!enable_bcm4773_wl && !strcmp(ws->name, "bcm4773_wake_lock"))
+		return;
+
+	if (!enable_wlan_rx_wake_wl && !strcmp(ws->name, "wlan_rx_wake"))
+                return;
+
+	if (!enable_wlan_ctrl_wake_wl && !strcmp(ws->name, "wlan_ctrl_wake"))
+                return;
+
+	if (!enable_wlan_wake_wl && !strcmp(ws->name, "wlan_wake"))
+                return;
+
+	if (!enable_power_manager_service_wl && !strcmp(ws->name, "PowerManagerService.WakeLocks"))
+		return;
+
+	if (!enable_bluedroid_timer_wl && !strcmp(ws->name, "bluedroid_timer"))
+		return;
 
 	/*
 	 * active wakeup source should bring the system
@@ -804,7 +857,18 @@ bool pm_wakeup_pending(void)
 	if (ret)
 		print_active_wakeup_sources();
 
-	return ret;
+	return ret || pm_abort_suspend;
+}
+
+void pm_system_wakeup(void)
+{
+	pm_abort_suspend = true;
+	freeze_wake();
+}
+
+void pm_wakeup_clear(void)
+{
+	pm_abort_suspend = false;
 }
 
 /**

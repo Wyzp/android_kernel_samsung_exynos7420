@@ -139,6 +139,14 @@ config EXYNOS_CONTENT_PATH_PROTECTION
 	help
 	  Enable content path protection of EXYNOS.
 
+config HOTPLUG_THREAD_STOP
+	bool "support to hotplug thread stop when LCD is on"
+	depends on EXYNOS5_DYNAMIC_CPU_HOTPLUG
+	help
+	  The hotplug thread unnecessary when LCD is on, because
+	  the dynamic hotplug not used during LCD on. This config
+	  enables hotplug thread stop feature.
+
 config EXYNOS5_SETUP_MIPIPHY
 	bool
 	depends on (VIDEO_EXYNOS_FIMC_IS || DECON_MIPI_DSI || EXYNOS_MIPI_DSI)
