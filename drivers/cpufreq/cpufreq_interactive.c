@@ -756,7 +756,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	spin_lock_irqsave(&speedchange_cpumask_lock, flags);
 	cpumask_set_cpu(data, &speedchange_cpumask);
 	spin_unlock_irqrestore(&speedchange_cpumask_lock, flags);
-	wake_up_process(speedchange_task);
+	wake_up_process_no_notif(tunables->speedchange_task);
 
 	goto rearm;
 
@@ -2110,6 +2110,27 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 			up_write(&pcpu->enable_sem);
 		}
 
+		snprintf(speedchange_task_name, TASK_NAME_LEN, "cfinteractive%d\n",
+					policy->cpu);
+
+		tunables->speedchange_task =
+			kthread_create(cpufreq_interactive_speedchange_task, NULL,
+				       speedchange_task_name);
+		if (IS_ERR(tunables->speedchange_task)) {
+			mutex_unlock(&gov_lock);
+			return PTR_ERR(tunables->speedchange_task);
+		}
+
+		sched_setscheduler_nocheck(tunables->speedchange_task, SCHED_FIFO, &param);
+		get_task_struct(tunables->speedchange_task);
+
+#if defined(CONFIG_ARM_EXYNOS_MP_CPUFREQ) || defined(CONFIG_ARM_EXYNOS_SMP_CPUFREQ)
+		kthread_bind(tunables->speedchange_task, policy->cpu);
+#endif
+
+		/* NB: wake up so the thread does not look hung to the freezer */
+		wake_up_process_no_notif(tunables->speedchange_task);
+
 		mutex_unlock(&gov_lock);
 		break;
 
@@ -2224,8 +2245,8 @@ static int cpufreq_interactive_cluster1_min_qos_handler(struct notifier_block *b
 		cpumask_set_cpu(cpu, &speedchange_cpumask);
 		spin_unlock_irqrestore(&speedchange_cpumask_lock, flags);
 
-                if (speedchange_task)
-                        wake_up_process(speedchange_task);
+		if (tunables->speedchange_task)
+			wake_up_process_no_notif(tunables->speedchange_task);
 	}
 exit:
 	mutex_unlock(&gov_lock);
@@ -2275,8 +2296,8 @@ static int cpufreq_interactive_cluster1_max_qos_handler(struct notifier_block *b
 		cpumask_set_cpu(cpu, &speedchange_cpumask);
 		spin_unlock_irqrestore(&speedchange_cpumask_lock, flags);
 
-                if (speedchange_task)
-                        wake_up_process(speedchange_task);
+		if (tunables->speedchange_task)
+			wake_up_process_no_notif(tunables->speedchange_task);
 	}
 exit:
 	mutex_unlock(&gov_lock);
@@ -2322,8 +2343,8 @@ static int cpufreq_interactive_cluster0_min_qos_handler(struct notifier_block *b
 		cpumask_set_cpu(0, &speedchange_cpumask);
 		spin_unlock_irqrestore(&speedchange_cpumask_lock, flags);
 
-                if (speedchange_task)
-                        wake_up_process(speedchange_task);
+		if (tunables->speedchange_task)
+			wake_up_process_no_notif(tunables->speedchange_task);
 	}
 exit:
 	mutex_unlock(&gov_lock);
@@ -2368,8 +2389,8 @@ static int cpufreq_interactive_cluster0_max_qos_handler(struct notifier_block *b
 		cpumask_set_cpu(0, &speedchange_cpumask);
 		spin_unlock_irqrestore(&speedchange_cpumask_lock, flags);
 
-                if (speedchange_task)
-                        wake_up_process(speedchange_task);
+		if (tunables->speedchange_task)
+			wake_up_process_no_notif(tunables->speedchange_task);
 	}
 exit:
 	mutex_unlock(&gov_lock);
