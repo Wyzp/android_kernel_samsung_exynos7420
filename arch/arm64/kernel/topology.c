@@ -322,6 +322,8 @@ static void __init parse_dt_cpu_power(void)
 	 * SCHED_POWER_SCALE, which is the default value, but with the
 	 * constraint explained near table_efficiency[].
 	 */
+
+	// TheCrazyLex@PA apply fix for cpu calculation by Jorge Ramirez-Ortiz
 	if (4 * max_capacity < (3 * (max_capacity + min_capacity)))
 		middle_capacity = (min_capacity + max_capacity)
 				>> (SCHED_POWER_SHIFT+1);
