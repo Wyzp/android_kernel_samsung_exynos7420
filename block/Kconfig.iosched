@@ -21,7 +21,6 @@ config IOSCHED_ROW
 	  Requests are kept in priority queues. Dispatching is done in a RR
 	  manner when the dispatch quantum for each queue is calculated
 	  according to queue priority.
-Most suitable for mobile devices.
 
 config IOSCHED_DEADLINE
 	tristate "Deadline I/O scheduler"
