@@ -2546,6 +2546,7 @@ unsigned int cpufreq_interactive_get_hispeed_freq(int cpu)
 
 	return tunables->hispeed_freq;
 }
+EXPORT_SYMBOL(cpufreq_interactive_get_hispeed_freq);
 
 #ifdef CONFIG_ARCH_EXYNOS
 static int cpufreq_interactive_cluster1_min_qos_handler(struct notifier_block *b,
