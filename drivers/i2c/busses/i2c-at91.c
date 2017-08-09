@@ -393,12 +393,7 @@ static int at91_do_twi_transfer(struct at91_twi_dev *dev)
 		at91_twi_write(dev, AT91_TWI_IER, AT91_TWI_TXCOMP);
 	} else if (dev->msg->flags & I2C_M_RD) {
 		unsigned start_flags = AT91_TWI_START;
-
-		if (at91_twi_read(dev, AT91_TWI_SR) & AT91_TWI_RXRDY) {
-			dev_err(dev->dev, "RXRDY still set!");
-			at91_twi_read(dev, AT91_TWI_RHR);
-		}
-
+		
 		/* if only one byte is to be read, immediately stop transfer */
 		if (dev->buf_len <= 1 && !(dev->msg->flags & I2C_M_RECV_LEN))
 			start_flags |= AT91_TWI_STOP;
