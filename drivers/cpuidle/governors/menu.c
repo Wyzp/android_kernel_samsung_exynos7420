@@ -28,7 +28,6 @@
 #define MAX_INTERESTING 50000
 #define STDDEV_THRESH 400
 
-#define U64_MAX ((u64)~0ULL)
 
 /*
  * Concepts and ideas behind the menu governor
