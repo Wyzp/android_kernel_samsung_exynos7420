@@ -830,7 +830,7 @@ static irqreturn_t vfsspi_irq(int irq, void *context)
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 #ifdef FEATURE_SPI_WAKELOCK
 			if (!vfsspi_device->disable_wake_lock) {
-				wake_lock_timeout(&vfsspi_device->fp_signal_lock, 3 * HZ);
+				wake_lock_timeout(&vfsspi_device->fp_signal_lock, HZ / 2);
 			}
 #endif
 #endif
