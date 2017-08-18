@@ -21,6 +21,27 @@
 
 #include "power.h"
 
+static bool enable_sensorhub_wl = true;
+module_param(enable_sensorhub_wl, bool, 0644);
+
+static bool enable_ssp_wl = true;
+module_param(enable_ssp_wl, bool, 0644);
+
+static bool enable_bcm4773_wl = true;
+module_param(enable_bcm4773_wl, bool, 0644);
+
+static bool enable_wlan_rx_wake_wl = true;
+module_param(enable_wlan_rx_wake_wl, bool, 0644);
+
+static bool enable_wlan_ctrl_wake_wl = true;
+module_param(enable_wlan_ctrl_wake_wl, bool, 0644);
+
+static bool enable_wlan_wake_wl = true;
+module_param(enable_wlan_wake_wl, bool, 0644);
+
+static bool enable_bluedroid_timer_wl = true;
+module_param(enable_bluedroid_timer_wl, bool, 0644);
+
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
  * if wakeup events are registered during or immediately before the transition.
@@ -608,6 +629,39 @@ static void wakeup_source_deactivate(struct wakeup_source *ws)
 	split_counters(&cnt, &inpr);
 	if (!inpr && waitqueue_active(&wakeup_count_wait_queue))
 		wake_up(&wakeup_count_wait_queue);
+}
+
+static bool wakeup_source_blocker(struct wakeup_source *ws)
+{
+	unsigned int wslen = 0;
+
+	if (ws) {
+		wslen = strlen(ws->name);
+
+		if ((!enable_sensorhub_wl && !strncmp(ws->name, "ssp_sensorhub_wake_lock", wslen)) ||
+			(!enable_wlan_rx_wake_wl &&
+				!strncmp(ws->name, "wlan_rx_wake", wslen)) ||
+			(!enable_wlan_ctrl_wake_wl &&
+				!strncmp(ws->name, "wlan_ctrl_wake", wslen)) ||
+			(!enable_wlan_wake_wl &&
+				!strncmp(ws->name, "wlan_wake", wslen)) ||
+			(!enable_bluedroid_timer_wl &&
+				!strncmp(ws->name, "bluedroid_timer", wslen)) ||
+			(!enable_ssp_wl &&
+				!strncmp(ws->name, "ssp_wake_lock", wslen)) ||
+			(!enable_bcm4773_wl &&
+				!strncmp(ws->name, "bcm4773_wake_lock", wslen))) {
+			if (ws->active) {
+				wakeup_source_deactivate(ws);
+				pr_info("forcefully deactivate wakeup source: %s\n",
+					ws->name);
+			}
+
+			return true;
+		}
+	}
+
+	return false;
 }
 
 /**
