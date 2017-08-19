@@ -722,6 +722,8 @@ void pm_get_active_wakeup_sources(char *pending_wakeup_source, size_t max)
 {
 	struct wakeup_source *ws;
 	int len = 0;
+	bool active = false;
+	
 	rcu_read_lock();
 	len += snprintf(pending_wakeup_source, max, "Pending Wakeup Sources: ");
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
@@ -914,9 +916,6 @@ static int print_wakeup_source_stats(struct seq_file *m,
 	unsigned long active_count;
 	ktime_t active_time;
 	ktime_t prevent_sleep_time;
-#ifdef CONFIG_SEC_PM_DEBUG
-	ktime_t time_while_screen_off;
-#endif
 	int ret;
 
 	spin_lock_irqsave(&ws->lock, flags);
@@ -924,9 +923,6 @@ static int print_wakeup_source_stats(struct seq_file *m,
 	total_time = ws->total_time;
 	max_time = ws->max_time;
 	prevent_sleep_time = ws->prevent_sleep_time;
-#ifdef CONFIG_SEC_PM_DEBUG
-	time_while_screen_off = ws->time_while_screen_off;
-#endif
 	active_count = ws->active_count;
 	if (ws->active) {
 		ktime_t now = ktime_get();
@@ -939,11 +935,6 @@ static int print_wakeup_source_stats(struct seq_file *m,
 		if (ws->autosleep_enabled)
 			prevent_sleep_time = ktime_add(prevent_sleep_time,
 				ktime_sub(now, ws->start_prevent_time));
-#ifdef CONFIG_SEC_PM_DEBUG
-		if (ws->is_screen_off)
-			time_while_screen_off = ktime_add(time_while_screen_off,
-				ktime_sub(now, ws->start_screen_off));
-#endif
 	} else {
 		active_time = ktime_set(0, 0);
 	}
@@ -955,7 +946,6 @@ static int print_wakeup_source_stats(struct seq_file *m,
 			ktime_to_ms(active_time), ktime_to_ms(total_time),
 			ktime_to_ms(max_time), ktime_to_ms(ws->last_time),
 			ktime_to_ms(prevent_sleep_time));
-#endif
 
 	spin_unlock_irqrestore(&ws->lock, flags);
 
@@ -973,7 +963,6 @@ static int wakeup_sources_stats_show(struct seq_file *m, void *unused)
 	seq_puts(m, "name\t\t\t\t\tactive_count\tevent_count\twakeup_count\t"
 		"expire_count\tactive_since\ttotal_time\tmax_time\t"
 		"last_change\tprevent_suspend_time\n");
-#endif
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry)
@@ -1000,9 +989,6 @@ static int __init wakeup_sources_debugfs_init(void)
 {
 	wakeup_sources_stats_dentry = debugfs_create_file("wakeup_sources",
 			S_IRUGO, NULL, NULL, &wakeup_sources_stats_fops);
-#ifdef CONFIG_SEC_PM_DEBUG
-	fb_register_client(&fb_block);
-#endif
 	return 0;
 }
 
