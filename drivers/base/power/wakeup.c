@@ -454,14 +454,16 @@ static bool wakeup_source_blocker(struct wakeup_source *ws)
 				!strncmp(ws->name, "wlan", wslen)) ||
 			(!enable_timerfd_ws &&
 				!strncmp(ws->name, "[timerfd]", wslen)) ||
+			(!enable_netlink_ws &&
+-				!strncmp(ws->name, "NETLINK", wslen)) ||
 			(!enable_wlan_rx_wake_ws &&
-				!strncmp(ws->name, "wlan_rx_wake_ws", wslen))) ||
+				!strncmp(ws->name, "wlan_rx_wake", wslen)) ||
 			(!enable_bcm4773_wl &&
-				!strncmp(ws->name, "bcm4773_wl", wslen))) ||
+				!strncmp(ws->name, "bcm4773", wslen)) ||
 			(!enable_sensorhub_wl &&
-				!strncmp(ws->name, "sensorhub_wl", wslen))) ||
+				!strncmp(ws->name, "sensorhub", wslen)) ||
 			(!enable_ssp_wl &&
-				!strncmp(ws->name, "ssp_wl", wslen))) {
+				!strncmp(ws->name, "ssp", wslen))) {
 			if (ws->active) {
 				wakeup_source_deactivate(ws);
 				pr_info("forcefully deactivate wakeup source: %s\n",
