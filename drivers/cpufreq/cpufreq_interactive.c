@@ -82,10 +82,9 @@ static struct mutex gov_lock;
 static cpumask_t regionchange_cpumask;
 static spinlock_t regionchange_cpumask_lock;
 #endif
-static int set_window_count;
-static int migration_register_count;
-static struct mutex sched_lock;
-static cpumask_t controlled_cpus;
+
+/* boolean for determining screen on/off state */
+static bool suspended = false;
 
 /* Target load.  Lower values result in higher CPU speeds. */
 #define DEFAULT_TARGET_LOAD 95
@@ -394,25 +393,6 @@ static unsigned int freq_to_targetload(
 	ret = tunables->target_loads[i];
 	spin_unlock_irqrestore(&tunables->target_loads_lock, flags);
 	return ret;
-}
-
-#define DEFAULT_MAX_LOAD 100
-u32 get_freq_max_load(int cpu, unsigned int freq)
-{
-	struct cpufreq_interactive_policyinfo *ppol = per_cpu(polinfo, cpu);
-
-	if (!cpumask_test_cpu(cpu, &controlled_cpus))
-		return DEFAULT_MAX_LOAD;
-
-	if (have_governor_per_policy()) {
-		if (!ppol || !ppol->cached_tunables)
-			return DEFAULT_MAX_LOAD;
-		return freq_to_targetload(ppol->cached_tunables, freq);
-	}
-
-	if (!cached_common_tunables)
-		return DEFAULT_MAX_LOAD;
-	return freq_to_targetload(cached_common_tunables, freq);
 }
 
 /*
@@ -1263,7 +1243,6 @@ static ssize_t store_target_loads(
 #endif
 	spin_unlock_irqrestore(&tunables->target_loads_lock, flags);
 
-	sched_update_freq_max_load(&controlled_cpus);
 	return count;
 }
 
@@ -2240,9 +2219,6 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 			WARN_ON(tunables);
 		} else if (tunables) {
 			tunables->usage_count++;
-			cpumask_or(&controlled_cpus, &controlled_cpus,
-				   policy->related_cpus);
-			sched_update_freq_max_load(policy->related_cpus);
 			policy->governor_data = tunables;
 			return 0;
 		}
@@ -2319,25 +2295,11 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 #endif
 			cpufreq_register_notifier(&cpufreq_notifier_block,
 					CPUFREQ_TRANSITION_NOTIFIER);
-
-		if (tunables->use_sched_load)
-			cpufreq_interactive_enable_sched_input(tunables);
-
-		cpumask_or(&controlled_cpus, &controlled_cpus,
-			   policy->related_cpus);
-		sched_update_freq_max_load(policy->related_cpus);
-
-		if (have_governor_per_policy())
-			ppol->cached_tunables = tunables;
-		else
-			cached_common_tunables = tunables;
+		}
 
 		break;
 
 	case CPUFREQ_GOV_POLICY_EXIT:
-		cpumask_andnot(&controlled_cpus, &controlled_cpus,
-			       policy->related_cpus);
-		sched_update_freq_max_load(cpu_possible_mask);
 		if (!--tunables->usage_count) {
 			if (policy->governor->initialized == 1) {
 				cpufreq_unregister_notifier(&cpufreq_notifier_block,
