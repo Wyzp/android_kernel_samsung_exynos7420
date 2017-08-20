@@ -43,6 +43,9 @@ static bool enable_sensorhub_wl = true;
 module_param(enable_sensorhub_wl, bool, 0644);
 static bool enable_ssp_wl = true;
 module_param(enable_ssp_wl, bool, 0644);
+static bool enable_vfsspi_wl = true;
+module_param(enable_vfsspi_wl, bool, 0644);
+
 
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
@@ -459,11 +462,13 @@ static bool wakeup_source_blocker(struct wakeup_source *ws)
 			(!enable_wlan_rx_wake_ws &&
 				!strncmp(ws->name, "wlan_rx_wake", wslen)) ||
 			(!enable_bcm4773_wl &&
-				!strncmp(ws->name, "bcm4773", wslen)) ||
+				!strncmp(ws->name, "bcm4773_wake_lock", wslen)) ||
 			(!enable_sensorhub_wl &&
-				!strncmp(ws->name, "sensorhub", wslen)) ||
+				!strncmp(ws->name, "sensorhub_wake_lock", wslen)) ||
 			(!enable_ssp_wl &&
-				!strncmp(ws->name, "ssp", wslen))) {
+				!strncmp(ws->name, "ssp_wake_lock", wslen))
+			(!enable_vfsspi_wl &&
+				!strncmp(ws->name, "vfsspi_wake_lock", wslen))) {
 			if (ws->active) {
 				wakeup_source_deactivate(ws);
 				pr_info("forcefully deactivate wakeup source: %s\n",
