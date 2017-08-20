@@ -466,7 +466,7 @@ static bool wakeup_source_blocker(struct wakeup_source *ws)
 			(!enable_sensorhub_wl &&
 				!strncmp(ws->name, "sensorhub_wake_lock", wslen)) ||
 			(!enable_ssp_wl &&
-				!strncmp(ws->name, "ssp_wake_lock", wslen))
+				!strncmp(ws->name, "ssp_wake_lock", wslen)) ||
 			(!enable_vfsspi_wl &&
 				!strncmp(ws->name, "vfsspi_wake_lock", wslen))) {
 			if (ws->active) {
