@@ -2372,7 +2372,7 @@ static int __devinit max77843_charger_probe(struct platform_device *pdev)
 	charger->store_mode = false;
 	charger->siop_level = 100;
 	charger->charging_current_max = 500;
-	charger->charging_current_max_tunable = 1500;
+	charger->charging_current_max_tunable = 1600;
 	charger->max77843_pdata = pdata;
 	charger->input_curr_limit_step = 33;
 	charger->is_call_on = false;
