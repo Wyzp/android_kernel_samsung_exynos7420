@@ -23,27 +23,27 @@
 
 #include "power.h"
 
-static bool enable_qcom_rx_wakelock_ws = true;
+static bool enable_qcom_rx_wakelock_ws = false;
 module_param(enable_qcom_rx_wakelock_ws, bool, 0644);
-static bool enable_wlan_extscan_wl_ws = true;
+static bool enable_wlan_extscan_wl_ws = false;
 module_param(enable_wlan_extscan_wl_ws, bool, 0644);
-static bool enable_wlan_rx_wake_ws = true;
+static bool enable_wlan_rx_wake_ws = false;
 module_param(enable_wlan_rx_wake_ws, bool, 0644);
 static bool enable_ipa_ws = true;
 module_param(enable_ipa_ws, bool, 0644);
-static bool enable_wlan_ws = true;
+static bool enable_wlan_ws = false;
 module_param(enable_wlan_ws, bool, 0644);
 static bool enable_timerfd_ws = true;
 module_param(enable_timerfd_ws, bool, 0644);
 static bool enable_netlink_ws = true;
 module_param(enable_netlink_ws, bool, 0644);
-static bool enable_bcm4773_wl = true;
+static bool enable_bcm4773_wl = false;
 module_param(enable_bcm4773_wl, bool, 0644);
-static bool enable_sensorhub_wl = true;
+static bool enable_sensorhub_wl = false;
 module_param(enable_sensorhub_wl, bool, 0644);
-static bool enable_ssp_wl = true;
+static bool enable_ssp_wl = false;
 module_param(enable_ssp_wl, bool, 0644);
-static bool enable_vfsspi_wl = true;
+static bool enable_vfsspi_wl = false;
 module_param(enable_vfsspi_wl, bool, 0644);
 
 
