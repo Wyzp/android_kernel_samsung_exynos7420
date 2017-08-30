@@ -290,20 +290,16 @@ static int sdcardfs_show_options(struct vfsmount *mnt, struct seq_file *m,
 	struct sdcardfs_mount_options *opts = &sbi->options;
 	struct sdcardfs_vfsmount_options *vfsopts = mnt->data;
 
-	if (opts->fs_low_uid != 0)
-		seq_printf(m, ",fsuid=%u", opts->fs_low_uid);
-	if (opts->fs_low_gid != 0)
-		seq_printf(m, ",fsgid=%u", opts->fs_low_gid);
-	if (vfsopts->gid != 0)
-		seq_printf(m, ",gid=%u", vfsopts->gid);
+	seq_printf(m, ",fsuid=%u", opts->fs_low_uid);
+	seq_printf(m, ",fsgid=%u", opts->fs_low_gid);
+	seq_printf(m, ",gid=%u", vfsopts->gid);
+
 	if (opts->multiuser)
 		seq_puts(m, ",multiuser");
-	if (vfsopts->mask)
-		seq_printf(m, ",mask=%u", vfsopts->mask);
-	if (opts->fs_user_id)
-		seq_printf(m, ",userid=%u", opts->fs_user_id);
-	if (opts->reserved_mb != 0)
-		seq_printf(m, ",reserved=%uMB", opts->reserved_mb);
+
+	seq_printf(m, ",mask=%u", vfsopts->mask);
+	seq_printf(m, ",userid=%u", opts->fs_user_id);
+	seq_printf(m, ",reserved=%uMB", opts->reserved_mb);
 
 	return 0;
 };
