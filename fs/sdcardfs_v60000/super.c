@@ -256,20 +256,16 @@ static int sdcardfs_show_options(struct seq_file *m, struct dentry *root)
 	struct sdcardfs_sb_info *sbi = SDCARDFS_SB(root->d_sb);
 	struct sdcardfs_mount_options *opts = &sbi->options;
 
-	if (opts->fs_low_uid != 0)
-		seq_printf(m, ",low_uid=%u", opts->fs_low_uid);
-	if (opts->fs_low_gid != 0)
-		seq_printf(m, ",low_gid=%u", opts->fs_low_gid);
-	if (opts->gid != 0)
-		seq_printf(m, ",gid=%u", opts->gid);
-	if (opts->userid != 0)
-		seq_printf(m, ",userid=%u", opts->userid);
-	if (opts->multi_user)
-		seq_printf(m, ",multi_user");
-	if (opts->mask != 0)
-		seq_printf(m, ",mask=%04o", opts->mask);
-	if (opts->reserved_mb != 0)
-		seq_printf(m, ",reserved=%uMB", opts->reserved_mb);
+	seq_printf(m, ",fsuid=%u", opts->fs_low_uid);
+	seq_printf(m, ",fsgid=%u", opts->fs_low_gid);
+	seq_printf(m, ",gid=%u", vfsopts->gid);
+
+	if (opts->multiuser)
+		seq_puts(m, ",multiuser");
+
+	seq_printf(m, ",mask=%u", vfsopts->mask);
+	seq_printf(m, ",userid=%u", opts->fs_user_id);
+	seq_printf(m, ",reserved=%uMB", opts->reserved_mb);
 
 	return 0;
 };
