@@ -48,9 +48,9 @@ void __iomem *g3d1_outstanding_regs;
 
 /*  clock, voltage, asv_abb, min_threshold, max_threshold, down_staycount, time, mem_freq, int_freq, cpu_freq (cl0) */
 static gpu_dvfs_info gpu_dvfs_table_default[] = {
-	{ 772, 900000, 0, 70, 100, 1, 0, 1552000, 400000, 1500000 },
-	{ 700, 875000, 0, 65,  95, 1, 0, 1552000, 400000, 1200000 },
-	{ 600, 850000, 0, 60,  90, 1, 0, 1552000, 413000,  900000 },
+	{ 772, 900000, 0, 70, 100, 1, 0, 1552000, 400000, 1200000 },
+	{ 700, 875000, 0, 65,  95, 1, 0, 1552000, 400000, 1000000 },
+	{ 600, 850000, 0, 60,  90, 1, 0, 1552000, 413000,  800000 },
 	{ 544, 825000, 0, 55,  85, 1, 0, 1026000, 413000,  700000 },
 	{ 420, 800000, 0, 50,  80, 1, 0, 1026000, 267000,  600000 },
 	{ 350, 775000, 0, 45,  75, 1, 0,  543000, 200000,  500000 },
@@ -92,7 +92,7 @@ static gpu_attribute gpu_config_attributes[] = {
 	{GPU_GOVERNOR_TABLE_SIZE_STATIC, GPU_DVFS_TABLE_LIST_SIZE(gpu_dvfs_table_default)},
 	{GPU_GOVERNOR_TABLE_SIZE_BOOSTER, GPU_DVFS_TABLE_LIST_SIZE(gpu_dvfs_table_default)},
 	{GPU_GOVERNOR_INTERACTIVE_HIGHSPEED_CLOCK, 420},
-	{GPU_GOVERNOR_INTERACTIVE_HIGHSPEED_LOAD, 50},
+	{GPU_GOVERNOR_INTERACTIVE_HIGHSPEED_LOAD, 95},
 	{GPU_GOVERNOR_INTERACTIVE_HIGHSPEED_DELAY, 0},
 	{GPU_DEFAULT_VOLTAGE, 900000},
 	{GPU_COLD_MINIMUM_VOL, 0},
