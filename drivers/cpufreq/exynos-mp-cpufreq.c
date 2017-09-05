@@ -26,7 +26,6 @@
 #include <linux/reboot.h>
 #include <linux/delay.h>
 #include <linux/cpu.h>
-#include <linux/ipa.h>
 #include <linux/pm_qos.h>
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
@@ -37,8 +36,6 @@
 #include <linux/muic/muic.h>
 #include <linux/muic/muic_notifier.h>
 #endif
-
-#include <linux/sysfs_helpers.h>
 
 #include <asm/smp_plat.h>
 #include <asm/cputype.h>
@@ -68,27 +65,6 @@
 #define POWER_COEFF_7P		9 /* percore  param */
 #endif
 
-#ifdef CONFIG_SOC_EXYNOS7420
-#define CL0_MAX_VOLT		1175000
-#define CL1_MAX_VOLT		1125000
-#define CL0_MIN_VOLT		500000
-#define CL1_MIN_VOLT		500000
-#define CL_MAX_VOLT(cl)		(cl == CL_ZERO ? CL0_MAX_VOLT : CL1_MAX_VOLT)
-#define CL_MIN_VOLT(cl)		(cl == CL_ZERO ? CL0_MIN_VOLT : CL1_MIN_VOLT)
-#define CL_VOLT_STEP		6250
-#else
-#error "Please define core voltage ranges for current SoC."
-#endif
-
-#ifdef CONFIG_SOC_EXYNOS7420
-#define CL0_MIN_FREQ		200000
-#define CL0_MAX_FREQ		1500000
-#define CL1_MIN_FREQ		200000
-#define CL1_MAX_FREQ		2100000
-#else
-#error "Please define core frequency ranges for current SoC."
-#endif
-
 #define VOLT_RANGE_STEP		25000
 #define CLUSTER_ID(cl)		(cl ? ID_CL1 : ID_CL0)
 
@@ -105,16 +81,6 @@ static struct lpj_info global_lpj_ref;
 static unsigned int freq_min[CL_END] __read_mostly;	/* Minimum (Big/Little) clock frequency */
 static unsigned int freq_max[CL_END] __read_mostly;	/* Maximum (Big/Little) clock frequency */
 
-static int min_flexible_freq = 1040000;
-static int max_flexible_freq = 2080000;
-
-enum cpu_dvfs_mode {
-	BATTERY_MODE = 0,
-	BALANCE_MODE,
-	PERFORMANCE_MODE,
-};
-static enum cpu_dvfs_mode current_mode = BALANCE_MODE;
-
 static struct exynos_dvfs_info *exynos_info[CL_END];
 static unsigned int volt_offset;
 static struct cpufreq_freqs *freqs[CL_END];
@@ -130,7 +96,10 @@ bool cluster_on[CL_END] = {true, };
 static bool hmp_boosted = false;
 #endif
 static bool cluster1_hotplugged = false;
-extern bool is_cpu_thermal;
+#endif
+
+#ifdef CONFIG_SW_SELF_DISCHARGING
+static int self_discharging;
 #endif
 
 /* Include CPU mask of each cluster */
@@ -166,17 +135,6 @@ static int qos_max_class[CL_END] = {PM_QOS_CLUSTER0_FREQ_MAX, PM_QOS_CLUSTER1_FR
 static int qos_min_class[CL_END] = {PM_QOS_CLUSTER0_FREQ_MIN, PM_QOS_CLUSTER1_FREQ_MIN};
 //static int qos_max_default_value[CL_END] = {PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE, PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE};
 static int qos_min_default_value[CL_END] = {PM_QOS_CLUSTER0_FREQ_MIN_DEFAULT_VALUE, PM_QOS_CLUSTER1_FREQ_MIN_DEFAULT_VALUE};
-
-/* For limit number of online cpus through cpuhotplug */
-struct pm_qos_request cpufreq_cpu_hotplug_max_request;
-
-// Reset DVFS
-#ifdef CONFIG_PM
-#define DVFS_RESET_SEC 15
-static struct delayed_work dvfs_reset_work;
-static struct workqueue_struct *dvfs_reset_wq;
-#endif
-
 /*
  * CPUFREQ init notifier
  */
@@ -1162,7 +1120,6 @@ static struct notifier_block exynos_tmu_nb = {
 static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 {
 	unsigned int cur = get_cur_cluster(policy->cpu);
-	int ret;
 
 	pr_debug("%s: cpu[%d]\n", __func__, policy->cpu);
 
@@ -1180,15 +1137,8 @@ static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 		cpumask_copy(policy->cpus, &cluster_cpus[CL_ZERO]);
 		cpumask_copy(policy->related_cpus, &cluster_cpus[CL_ZERO]);
 	}
-	
-	ret = cpufreq_frequency_table_cpuinfo(policy, exynos_info[cur]->freq_table);
-	
-	if (!ret) {
-		policy->min = cur == CL_ONE ? CL1_MIN_FREQ : CL0_MIN_FREQ;
-		policy->max = cur == CL_ONE ? CL1_MAX_FREQ : CL0_MAX_FREQ;
-	}
 
-	return ret;
+	return cpufreq_frequency_table_cpuinfo(policy, exynos_info[cur]->freq_table);
 }
 
 static struct cpufreq_driver exynos_driver = {
@@ -1275,28 +1225,25 @@ static ssize_t show_cpufreq_min_limit(struct kobject *kobj,
 	return nsize;
 }
 
-static void save_cpufreq_min_limit(int input)
+static ssize_t store_cpufreq_min_limit(struct kobject *kobj, struct attribute *attr,
+					const char *buf, size_t count)
 {
-	int cluster1_input = input, cluster0_input;
+	int cluster1_input, cluster0_input;
+
+	if (!sscanf(buf, "%8d", &cluster1_input))
+		return -EINVAL;
 
 	if (cluster1_input >= (int)freq_min[CL_ONE]) {
 #ifdef CONFIG_SCHED_HMP
-		if (!is_cpu_thermal && current_mode == PERFORMANCE_MODE) {
-			if (!hmp_boosted) {
-				if (set_hmp_boost(1) < 0)
-					pr_err("%s: failed HMP boost enable\n",
-								__func__);
-				else
-					hmp_boosted = true;
-			}
-			cluster1_input = min(cluster1_input, (int)freq_max[CL_ONE]);
-		} else
-#endif
-		if (cluster1_input > min_flexible_freq) {
-			cluster1_input = min_flexible_freq;
-		} else if (cluster1_input > 416000) {
-			cluster1_input = 416000;
+		if (!hmp_boosted) {
+			if (set_hmp_boost(1) < 0)
+				pr_err("%s: failed HMP boost enable\n",
+							__func__);
+			else
+				hmp_boosted = true;
 		}
+#endif
+		cluster1_input = min(cluster1_input, (int)freq_max[CL_ONE]);
 		if (exynos_info[CL_ZERO]->boost_freq)
 			cluster0_input = exynos_info[CL_ZERO]->boost_freq;
 		else
@@ -1326,21 +1273,6 @@ static void save_cpufreq_min_limit(int input)
 		pm_qos_update_request(&core_min_qos[CL_ONE], cluster1_input);
 	if (pm_qos_request_active(&core_min_qos[CL_ZERO]))
 		pm_qos_update_request(&core_min_qos[CL_ZERO], cluster0_input);
-}
-
-static ssize_t store_cpufreq_min_limit(struct kobject *kobj, struct attribute *attr,
-					const char *buf, size_t count)
-{
-	int cluster1_input;
-
-	if (!sscanf(buf, "%8d", &cluster1_input))
-		return -EINVAL;
-
-	save_cpufreq_min_limit(cluster1_input);
-	cancel_delayed_work_sync(&dvfs_reset_work);
-	if (cluster1_input > 0)
-		queue_delayed_work_on(0, dvfs_reset_wq, &dvfs_reset_work,
-			DVFS_RESET_SEC * HZ);
 
 	return count;
 }
@@ -1372,19 +1304,13 @@ static ssize_t show_cpufreq_max_limit(struct kobject *kobj,
 	return nsize;
 }
 
-/*static void enable_nonboot_cluster_cpus(void)
+static ssize_t store_cpufreq_max_limit(struct kobject *kobj, struct attribute *attr,
+					const char *buf, size_t count)
 {
-	pm_qos_update_request(&cpufreq_cpu_hotplug_max_request, NR_CPUS);
-}
+	int cluster1_input, cluster0_input;
 
-static void disable_nonboot_cluster_cpus(void)
-{
-	pm_qos_update_request(&cpufreq_cpu_hotplug_max_request, NR_CLUST1_CPUS);
-}*/
-
-static void save_cpufreq_max_limit(int input)
-{
-	int cluster1_input = input, cluster0_input;
+	if (!sscanf(buf, "%8d", &cluster1_input))
+		return -EINVAL;
 
 	if (cluster1_input >= (int)freq_min[CL_ONE]) {
 		if (cluster1_hotplugged) {
@@ -1395,10 +1321,7 @@ static void save_cpufreq_max_limit(int input)
 				cluster1_hotplugged = false;
 		}
 
-		if (is_cpu_thermal && current_mode == BATTERY_MODE)
-			cluster1_input = max(cluster1_input, (int)freq_min[CL_ONE]);
-		else
-			cluster1_input = max(cluster1_input, max_flexible_freq);
+		cluster1_input = max(cluster1_input, (int)freq_min[CL_ONE]);
 		cluster0_input = core_max_qos_const[CL_ZERO].default_value;
 	} else if (cluster1_input < (int)freq_min[CL_ONE]) {
 		if (cluster1_input < 0) {
@@ -1432,34 +1355,36 @@ static void save_cpufreq_max_limit(int input)
 		pm_qos_update_request(&core_max_qos[CL_ONE], cluster1_input);
 	if (pm_qos_request_active(&core_max_qos[CL_ZERO]))
 		pm_qos_update_request(&core_max_qos[CL_ZERO], cluster0_input);
-}
-
-static ssize_t store_cpufreq_max_limit(struct kobject *kobj, struct attribute *attr,
-					const char *buf, size_t count)
-{
-	int cluster1_input;
-
-	if (!sscanf(buf, "%8d", &cluster1_input))
-		return -EINVAL;
-
-	save_cpufreq_max_limit(cluster1_input);
-	cancel_delayed_work_sync(&dvfs_reset_work);
-	if (cluster1_input > 0)
-		queue_delayed_work_on(0, dvfs_reset_wq, &dvfs_reset_work,
-			DVFS_RESET_SEC * HZ);
 
 	return count;
 }
+#endif
 
-static void dvfs_reset_work_fn(struct work_struct *work)
+#ifdef CONFIG_SW_SELF_DISCHARGING
+static ssize_t show_cpufreq_self_discharging(struct kobject *kobj,
+			     struct attribute *attr, char *buf)
 {
-	pr_info("%s++: DVFS timed out(%d)! Resetting with -1\n", __func__, DVFS_RESET_SEC);
+	return sprintf(buf, "%d\n", self_discharging);
+}
 
-	save_cpufreq_min_limit(-1);
-	msleep(20);
-	save_cpufreq_max_limit(-1);
+static ssize_t store_cpufreq_self_discharging(struct kobject *kobj, struct attribute *attr,
+			      const char *buf, size_t count)
+{
+	int input;
 
-	pr_info("%s--\n", __func__);
+	if (!sscanf(buf, "%d", &input))
+		return -EINVAL;
+
+	if (input > 0) {
+		self_discharging = input;
+		cpu_idle_poll_ctrl(true);
+	}
+	else {
+		self_discharging = 0;
+		cpu_idle_poll_ctrl(false);
+	}
+
+	return count;
 }
 #endif
 
@@ -1551,95 +1476,6 @@ inline ssize_t set_boot_low_freq(const char *buf, size_t count)
 					PM_QOS_DEFAULT_VALUE);
 	}
 
- 	return count;
-}
-
-static size_t get_freq_table_size(struct cpufreq_frequency_table *freq_table)
-{
-	size_t tbl_sz = 0;
-	int i;
-
-	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++)
-		tbl_sz++;
-
-	return tbl_sz;
-}
-
-static ssize_t show_volt_table(struct kobject *kobj,
-				struct attribute *attr, char *buf, int cluster)
-{
-	int i, count = 0;
-	size_t tbl_sz = 0, pr_len;
-	struct cpufreq_frequency_table *freq_table = exynos_info[cluster]->freq_table;
-
-	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++)
-		tbl_sz++;
-
-	if (tbl_sz == 0)
-		return -EINVAL;
-
-	pr_len = (size_t)((PAGE_SIZE - 2) / tbl_sz);
-
-	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
-		if (freq_table[i].frequency != CPUFREQ_ENTRY_INVALID)
-			count += snprintf(&buf[count], pr_len, "%d %d\n",
-					freq_table[i].frequency,
-					exynos_info[cluster]->volt_table[i]);
-	}
-
-	return count;
-}
-
-static ssize_t store_volt_table(struct kobject *kobj, struct attribute *attr,
-					const char *buf, size_t count, int cluster)
-{
-	int i, tokens, rest, target, invalid_offset;
-	struct cpufreq_frequency_table *freq_table = exynos_info[cluster]->freq_table;
-	size_t tbl_sz = get_freq_table_size(freq_table);
-	int t[tbl_sz];
-
-	invalid_offset = 0;
-
-	if ((tokens = read_into((int*)&t, tbl_sz, buf, count)) < 0)
-		return -EINVAL;
-
-	target = -1;
-	if (tokens == 2) {
-		for (i = 0; (freq_table[i].frequency != CPUFREQ_TABLE_END); i++) {
-			unsigned int freq = freq_table[i].frequency;
-			if (freq == CPUFREQ_ENTRY_INVALID)
-				continue;
-
-			if (t[0] == freq) {
-				target = i;
-				break;
-			}
-		}
-	}
-
-	mutex_lock(&cpufreq_lock);
-
-	if (tokens == 2 && target > 0) {
-		if ((rest = t[1] % CL_VOLT_STEP) != 0)
-			t[1] += CL_VOLT_STEP - rest;
-		
-		sanitize_min_max(t[1], CL_MIN_VOLT(cluster), CL_MAX_VOLT(cluster));
-		exynos_info[cluster]->volt_table[target] = t[1];
-	} else {
-		for (i = 0; i < tokens; i++) {
-			while (freq_table[i + invalid_offset].frequency == CPUFREQ_ENTRY_INVALID)
-				++invalid_offset;
-
-			if ((rest = t[i] % CL_VOLT_STEP) != 0)
-				t[i] += CL_VOLT_STEP - rest;
-			
-			sanitize_min_max(t[i], CL_MIN_VOLT(cluster), CL_MAX_VOLT(cluster));
-			exynos_info[cluster]->volt_table[i + invalid_offset] = t[i];
-		}
-	}
-
-	mutex_unlock(&cpufreq_lock);
-
 	return count;
 }
 
@@ -1671,18 +1507,6 @@ static ssize_t store_cluster1_max_freq(struct kobject *kobj, struct attribute *a
 					const char *buf, size_t count)
 {
 	return store_core_freq(buf, count, CL_ONE, true);
-}
-
-static ssize_t show_cluster1_volt_table(struct kobject *kobj,
-				struct attribute *attr, char *buf)
-{
-	return show_volt_table(kobj, attr, buf, CL_ONE);
-}
-
-static ssize_t store_cluster1_volt_table(struct kobject *kobj, struct attribute *attr,
-					const char *buf, size_t count)
-{
-	return store_volt_table(kobj, attr, buf, count, CL_ONE);
 }
 
 static ssize_t show_cluster0_freq_table(struct kobject *kobj,
@@ -1727,64 +1551,22 @@ static ssize_t store_boot_low_freq(struct kobject *kobj, struct attribute *attr,
 	return set_boot_low_freq(buf, count);
 }
 
-static ssize_t show_cluster0_volt_table(struct kobject *kobj,
-				struct attribute *attr, char *buf)
-{
-	return show_volt_table(kobj, attr, buf, CL_ZERO);
-}
-
-static ssize_t store_cluster0_volt_table(struct kobject *kobj, struct attribute *attr,
-					const char *buf, size_t count)
-{
-	return store_volt_table(kobj, attr, buf, count, CL_ZERO);
-}
-
-static ssize_t show_cpu_dvfs_mode_control(struct kobject *kobj,
-				struct attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%u\n", current_mode);
-}
-
-static ssize_t store_cpu_dvfs_mode_control(struct kobject *kobj, struct attribute *attr,
-					const char *buf, size_t count)
-{
-	int mode;
-
-	if (!sscanf(buf, "%8d", &mode))
-		return -EINVAL;
-
-	if (mode < 0 || mode > 2) {
-		pr_err("%s: invalid value (%d)\n", __func__, mode);
-		return -EINVAL;
-	}
-
-	current_mode = mode;
-
-	return count;
-}
-
 define_one_global_ro(cluster1_freq_table);
 define_one_global_rw(cluster1_min_freq);
 define_one_global_rw(cluster1_max_freq);
-define_one_global_rw(cluster1_volt_table);
 define_one_global_ro(cluster0_freq_table);
 define_one_global_rw(cluster0_min_freq);
 define_one_global_rw(cluster0_max_freq);
-define_one_global_rw(cluster0_volt_table);
 define_one_global_rw(boot_low_freq);
-define_one_global_rw(cpu_dvfs_mode_control);
 
 static struct attribute *mp_attributes[] = {
 	&cluster1_freq_table.attr,
 	&cluster1_min_freq.attr,
 	&cluster1_max_freq.attr,
-	&cluster1_volt_table.attr,
 	&cluster0_freq_table.attr,
 	&cluster0_min_freq.attr,
 	&cluster0_max_freq.attr,
-	&cluster0_volt_table.attr,
 	&boot_low_freq.attr,
-	&cpu_dvfs_mode_control.attr,
 	NULL
 };
 
@@ -1802,6 +1584,12 @@ static struct global_attr cpufreq_min_limit =
 static struct global_attr cpufreq_max_limit =
 		__ATTR(cpufreq_max_limit, S_IRUGO | S_IWUSR,
 			show_cpufreq_max_limit, store_cpufreq_max_limit);
+#endif
+
+#ifdef CONFIG_SW_SELF_DISCHARGING
+static struct global_attr cpufreq_self_discharging =
+		__ATTR(cpufreq_self_discharging, S_IRUGO | S_IWUSR,
+			show_cpufreq_self_discharging, store_cpufreq_self_discharging);
 #endif
 
 /************************** sysfs end ************************/
@@ -2322,6 +2110,14 @@ static int __init exynos_cpufreq_init(void)
 	}
 #endif
 
+#ifdef CONFIG_SW_SELF_DISCHARGING
+	ret = sysfs_create_file(power_kobj, &cpufreq_self_discharging.attr);
+	if (ret) {
+		pr_err("%s: failed to create cpufreq_self_discharging sysfs interface\n", __func__);
+		goto err_cpufreq_self_discharging;
+	}
+#endif
+
 #if defined(CONFIG_PMU_COREMEM_RATIO)
 	if (exynos_info[CL_ZERO]->region_bus_table || exynos_info[CL_ONE]->region_bus_table) {
 #else
@@ -2339,11 +2135,6 @@ static int __init exynos_cpufreq_init(void)
 						msecs_to_jiffies(1000));
 	}
 
-#ifdef CONFIG_PM
-	dvfs_reset_wq = create_workqueue("dvfs_reset");
-	INIT_DELAYED_WORK(&dvfs_reset_work, dvfs_reset_work_fn);
-#endif
-
 	exynos_cpufreq_init_done = true;
 	exynos_cpufreq_init_notify_call_chain(CPUFREQ_INIT_COMPLETE);
 
@@ -2351,6 +2142,12 @@ static int __init exynos_cpufreq_init(void)
 	return 0;
 
 err_workqueue:
+#ifdef CONFIG_SW_SELF_DISCHARGING
+err_cpufreq_self_discharging:
+#ifdef CONFIG_PM
+	sysfs_remove_file(power_kobj, &cpufreq_max_limit.attr);
+#endif
+#endif
 #ifdef CONFIG_PM
 err_cpufreq_max_limit:
 	sysfs_remove_file(power_kobj, &cpufreq_min_limit.attr);
