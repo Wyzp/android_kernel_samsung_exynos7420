@@ -25,26 +25,48 @@
 
 static bool enable_qcom_rx_wakelock_ws = false;
 module_param(enable_qcom_rx_wakelock_ws, bool, 0644);
+
 static bool enable_wlan_extscan_wl_ws = false;
 module_param(enable_wlan_extscan_wl_ws, bool, 0644);
+
 static bool enable_wlan_rx_wake_ws = false;
 module_param(enable_wlan_rx_wake_ws, bool, 0644);
+
+static bool enable_wlan_ctrl_wake_ws = false;
+module_param(enable_wlan_ctrl_wake_ws, bool, 0644);
+
+static bool enable_wlan_wake_ws = false;
+module_param(enable_wlan_wake_ws, bool, 0644);
+
 static bool enable_ipa_ws = true;
 module_param(enable_ipa_ws, bool, 0644);
+
 static bool enable_wlan_ws = false;
 module_param(enable_wlan_ws, bool, 0644);
+
 static bool enable_timerfd_ws = true;
 module_param(enable_timerfd_ws, bool, 0644);
+
 static bool enable_netlink_ws = true;
 module_param(enable_netlink_ws, bool, 0644);
+
 static bool enable_bcm4773_wl = false;
 module_param(enable_bcm4773_wl, bool, 0644);
+
 static bool enable_sensorhub_wl = false;
 module_param(enable_sensorhub_wl, bool, 0644);
+
 static bool enable_ssp_wl = false;
 module_param(enable_ssp_wl, bool, 0644);
-static bool enable_vfsspi_wl = false;
-module_param(enable_vfsspi_wl, bool, 0644);
+
+static bool enable_lli_pm_wl = false;
+module_param(enable_lli_pm_wl, bool, 0644);
+
+static bool enable_radio_interface_wl = true;
+module_param(enable_radio_interface_wl, bool, 0644)
+
+static bool enable_umts_ipc0_wl = true;
+module_param(enable_umts_ipc0_wl, bool, 0644);
 
 
 /*
@@ -467,8 +489,16 @@ static bool wakeup_source_blocker(struct wakeup_source *ws)
 				!strncmp(ws->name, "sensorhub_wake_lock", wslen)) ||
 			(!enable_ssp_wl &&
 				!strncmp(ws->name, "ssp_wake_lock", wslen)) ||
-			(!enable_vfsspi_wl &&
-				!strncmp(ws->name, "vfsspi_wake_lock", wslen))) {
+			(!enable_radio_interface_wl &&
+				!strncmp(ws->name, "radio-interface", wslen)) ||
+			(!enable_wlan_wake_ws &&
+				!strncmp(ws->name, "wlan_wake", wslen)) ||
+			(!enable_umts_ipc0_wl &&
+				!strncmp(ws->name, "umts_ipc0", wslen)) ||
+			(!enable_wlan_ctrl_wake_ws &&
+				!strncmp(ws->name, "wlan_ctrl_wake", wslen)) ||
+			(!enable_lli_pm_wl &&
+				!strncmp(ws->name, "lli_pm_wlock", wslen))) {
 			if (ws->active) {
 				wakeup_source_deactivate(ws);
 				pr_info("forcefully deactivate wakeup source: %s\n",
