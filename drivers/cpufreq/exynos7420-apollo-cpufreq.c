@@ -330,7 +330,7 @@ static void __init set_volt_table_CA53(void)
 #ifdef CONFIG_S6_LOW_IDLE
 	min_support_idx_CA53 = L18;	/* 200MHz */
 #else
-	min_support_idx_CA53 = L16;	/* 400MHz */
+	min_support_idx_CA53 = L18;	/* 200MHz */
 #endif
 	pr_info("CPUFREQ of CA53 max_freq : L%d %u khz\n", max_support_idx_CA53,
 		exynos7420_freq_table_CA53[max_support_idx_CA53].frequency);
