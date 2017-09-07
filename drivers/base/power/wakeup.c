@@ -63,7 +63,7 @@ static bool enable_lli_pm_wl = false;
 module_param(enable_lli_pm_wl, bool, 0644);
 
 static bool enable_radio_interface_wl = true;
-module_param(enable_radio_interface_wl, bool, 0644)
+module_param(enable_radio_interface_wl, bool, 0644);
 
 static bool enable_umts_ipc0_wl = true;
 module_param(enable_umts_ipc0_wl, bool, 0644);
