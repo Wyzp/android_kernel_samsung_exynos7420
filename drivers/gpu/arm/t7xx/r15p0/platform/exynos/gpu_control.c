@@ -17,27 +17,20 @@
 
 #include <mali_kbase.h>
 
-#include <linux/of_device.h>
 #include <linux/pm_qos.h>
-#include <linux/pm_domain.h>
-#include <linux/clk.h>
 #include <mach/pm_domains.h>
-#if defined(CONFIG_SOC_EXYNOS8890) && defined(CONFIG_PWRCAL)
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
-#include <../pwrcal/pwrcal.h>
-#include <../pwrcal/S5E8890/S5E8890-vclk.h>
-#include <mach/pm_domains-cal.h>
-#else
-#include <../../../../../soc/samsung/pwrcal/pwrcal.h>
-#include <../../../../../soc/samsung/pwrcal/S5E8890/S5E8890-vclk.h>
-#include <../../../../../soc/samsung/pwrcal/S5E8890/S5E8890-vclk-internal.h>
-#include <soc/samsung/pm_domains-cal.h>
-#endif /* LINUX_VERSION */
-#endif /* CONFIG_SOC_EXYNOS8890 && CONFIG_PWRCAL */
 
 #include "mali_kbase_platform.h"
 #include "gpu_dvfs_handler.h"
 #include "gpu_control.h"
+#include <linux/state_notifier.h>
+
+static struct notifier_block gpu_state_notif;
+static bool suspended = false;
+
+unsigned int gpu_min_override = 100;
+unsigned int gpu_max_override = 852;
+unsigned int gpu_max_override_screen_off = 0;
 
 static struct gpu_control_ops *ctr_ops;
 
@@ -65,7 +58,6 @@ static struct exynos_pm_domain *gpu_get_pm_domain(void)
 }
 #endif /* CONFIG_MALI_RT_PM */
 
-#ifdef CONFIG_SOC_EXYNOS7420
 int get_cpu_clock_speed(u32 *cpu_clock)
 {
 	struct clk *cpu_clk;
@@ -77,7 +69,6 @@ int get_cpu_clock_speed(u32 *cpu_clock)
 	*cpu_clock = (freq/MHZ);
 	return 0;
 }
-#endif
 
 int gpu_control_set_voltage(struct kbase_device *kbdev, int voltage)
 {
@@ -127,6 +118,17 @@ int gpu_control_set_clock(struct kbase_device *kbdev, int clock)
 		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: platform context is null\n", __func__);
 		return -ENODEV;
 	}
+
+	if (clock < gpu_min_override)
+		clock = gpu_min_override;
+	if (!suspended || gpu_max_override_screen_off == 0) {
+		if (clock > gpu_max_override)
+			clock = gpu_max_override;
+	} else {
+		if (clock > gpu_max_override_screen_off)
+			clock = gpu_max_override_screen_off;
+	}
+	
 
 	if (platform->dvs_is_enabled) {
 		GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u,
@@ -200,7 +202,7 @@ int gpu_control_disable_clock(struct kbase_device *kbdev)
 		ret = ctr_ops->disable_clock(platform);
 	mutex_unlock(&platform->gpu_clock_lock);
 
-#ifdef CONFIG_MALI_SEC_HWCNT
+#ifdef MALI_SEC_HWCNT
 	dvfs_hwcnt_clear_tripipe(kbdev);
 #endif
 	gpu_dvfs_update_time_in_state(platform->cur_clock);
@@ -212,6 +214,26 @@ int gpu_control_disable_clock(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_DVFS */
 
 	return ret;
+}
+
+static int state_notifier_callback(struct notifier_block *this,
+				unsigned long event, void *data)
+{
+	if (!suspended)
+		return NOTIFY_OK;
+
+	switch (event) {
+		case STATE_NOTIFIER_ACTIVE:
+			suspended = false;
+			break;
+		case STATE_NOTIFIER_SUSPEND:
+			suspended = true;
+			break;
+		default:
+			break;
+	}
+
+	return NOTIFY_OK;
 }
 
 int gpu_control_is_power_on(struct kbase_device *kbdev)
@@ -247,16 +269,8 @@ int gpu_control_enable_customization(struct kbase_device *kbdev)
 	if (ctr_ops->set_clock_to_osc)
 		ctr_ops->set_clock_to_osc(platform);
 
-#ifdef CONFIG_MALI_SEC_HWCNT
-	mutex_lock(&kbdev->hwcnt.dvs_lock);
-#endif
-
 	platform->dvs_is_enabled = true;
 	ret = gpu_enable_dvs(platform);
-
-#ifdef CONFIG_MALI_SEC_HWCNT
-	mutex_unlock(&kbdev->hwcnt.dvs_lock);
-#endif
 
 	mutex_unlock(&platform->gpu_clock_lock);
 #endif /* CONFIG_REGULATOR */
@@ -307,6 +321,10 @@ int gpu_control_module_init(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_RT_PM */
 
 	ctr_ops = gpu_get_control_ops();
+
+	gpu_state_notif.notifier_call = state_notifier_callback;
+	if (state_register_client(&gpu_state_notif))
+		pr_err("Failed to register State notifier callback\n");
 
 	if (gpu_power_init(kbdev) < 0) {
 		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: failed to initialize power\n", __func__);
