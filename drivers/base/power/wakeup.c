@@ -452,10 +452,10 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 	if (!enable_wlan_wake_wl && !strcmp(ws->name, "wlan_wake"))
         return;
         
-    if (!enable_wlan_extscan_wl_ws && !strcmp(ws->name, "wlan_extscan_wl"))
+    if ((!enable_wlan_extscan_wl_ws && !strcmp(ws->name, "wlan_extscan_wl")) && ws->active)
         return;
         
-    if (!enable_ipa_ws && !strcmp(ws->name, "IPA_WS"))
+    if ((!enable_ipa_ws && !strcmp(ws->name, "IPA_WS")) && ws->active)
         return;
                 
     if (!enable_timerfd_ws && !strcmp(ws->name, "[timerfd]"))
@@ -467,13 +467,13 @@ static void wakeup_source_activate(struct wakeup_source *ws)
     if (!enable_umts_ipc0_wl && !strcmp(ws->name, "umts_ipc0"))
         return;
                 
-    if (!enable_lli_pm_wl && !strcmp(ws->name, "lli_pm_wlock"))
+    if ((!enable_lli_pm_wl && !strcmp(ws->name, "lli_pm_wlock")) && ws->active)
         return;
 
 	if (!enable_power_manager_service_wl && !strcmp(ws->name, "PowerManagerService.WakeLocks"))
 		return;
 
-	if (!enable_bluedroid_timer_wl && !strcmp(ws->name, "bluedroid_timer"))
+	if ((!enable_bluedroid_timer_wl && !strcmp(ws->name, "bluedroid_timer")) && ws->active)
 		return;
 
 	/*
