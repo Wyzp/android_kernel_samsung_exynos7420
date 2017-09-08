@@ -41,11 +41,31 @@ module_param(enable_wlan_ctrl_wake_wl, bool, 0644);
 static bool enable_wlan_wake_wl = true;
 module_param(enable_wlan_wake_wl, bool, 0644);
 
+static bool enable_wlan_extscan_wl_ws = true;
+module_param(enable_wlan_extscan_wl_ws, bool, 0644);
+
+static bool enable_netlink_ws = true;
+module_param(enable_netlink_ws, bool, 0644);
+
 static bool enable_power_manager_service_wl = true;
 module_param(enable_power_manager_service_wl, bool, 0644);
 
 static bool enable_bluedroid_timer_wl = true;
 module_param(enable_bluedroid_timer_wl, bool, 0644);
+
+static bool enable_lli_pm_wl = true;
+module_param(enable_lli_pm_wl, bool, 0644);
+
+static bool enable_umts_ipc0_wl = true;
+module_param(enable_umts_ipc0_wl, bool, 0644);
+
+static bool enable_ipa_ws = true;
+module_param(enable_ipa_ws, bool, 0644);
+
+static bool enable_timerfd_ws = true;
+module_param(enable_timerfd_ws, bool, 0644);
+
+
 
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
@@ -424,13 +444,31 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 		return;
 
 	if (!enable_wlan_rx_wake_wl && !strcmp(ws->name, "wlan_rx_wake"))
-                return;
+        return;
 
 	if (!enable_wlan_ctrl_wake_wl && !strcmp(ws->name, "wlan_ctrl_wake"))
-                return;
+        return;
 
 	if (!enable_wlan_wake_wl && !strcmp(ws->name, "wlan_wake"))
-                return;
+        return;
+        
+    if (!enable_wlan_extscan_wl_ws && !strcmp(ws->name, "wlan_extscan_wl"))
+        return;
+        
+    if (!enable_ipa_ws && !strcmp(ws->name, "IPA_WS"))
+        return;
+                
+    if (!enable_timerfd_ws && !strcmp(ws->name, "[timerfd]"))
+        return;
+                
+    if (!enable_netlink_ws && !strcmp(ws->name, "NETLINK"))
+        return;
+                
+    if (!enable_umts_ipc0_wl && !strcmp(ws->name, "umts_ipc0"))
+        return;
+                
+    if (!enable_lli_pm_wl && !strcmp(ws->name, "lli_pm_wlock"))
+        return;
 
 	if (!enable_power_manager_service_wl && !strcmp(ws->name, "PowerManagerService.WakeLocks"))
 		return;
