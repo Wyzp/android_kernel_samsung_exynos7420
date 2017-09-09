@@ -3137,6 +3137,7 @@ int mmc_resume_host(struct mmc_host *host)
 		}
 	}
 	host->pm_flags &= ~MMC_PM_KEEP_POWER;
+	host->pm_flags &= ~MMC_PM_WAKE_SDIO_IRQ;
 	mmc_bus_put(host);
 
 	return err;
