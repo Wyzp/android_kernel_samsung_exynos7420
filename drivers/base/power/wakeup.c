@@ -68,6 +68,9 @@ module_param(enable_ipa_ws, bool, 0644);
 static bool enable_timerfd_ws = true;
 module_param(enable_timerfd_ws, bool, 0644);
 
+static int enable_radio_interface_ws = true;
+module_param(enable_radio_interface_ws, bool, 0644);
+
 
 
 /*
@@ -471,6 +474,9 @@ static void wakeup_source_activate(struct wakeup_source *ws)
         return;
                 
     if (!enable_umts_ipc0_wl && !strcmp(ws->name, "umts_ipc0"))
+        return;
+        
+    if (!enable_radio_interface_ws && !strcmp(ws->name, "radio-interface"))
         return;
                 
     if ((!enable_lli_pm_wl && !strcmp(ws->name, "lli_pm_wlock")) && ws->active)
