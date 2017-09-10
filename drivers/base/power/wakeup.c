@@ -41,6 +41,9 @@ module_param(enable_wlan_ctrl_wake_wl, bool, 0644);
 static bool enable_wlan_wake_wl = true;
 module_param(enable_wlan_wake_wl, bool, 0644);
 
+static bool enable_wlan_pm_wake_wl = true;
+module_param(enable_wlan_pm_wake_wl, bool, 0644);
+
 static bool enable_wlan_extscan_wl_ws = true;
 module_param(enable_wlan_extscan_wl_ws, bool, 0644);
 
@@ -450,6 +453,9 @@ static void wakeup_source_activate(struct wakeup_source *ws)
         return;
 
 	if (!enable_wlan_wake_wl && !strcmp(ws->name, "wlan_wake"))
+        return;
+        
+    if (!enable_wlan_pm_wake_wl && !strcmp(ws->name, "wlan_pm_wake"))
         return;
         
     if (!enable_wlan_extscan_wl_ws && !strcmp(ws->name, "wlan_extscan_wl"))
