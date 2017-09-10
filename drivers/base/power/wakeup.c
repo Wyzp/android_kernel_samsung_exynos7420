@@ -476,7 +476,7 @@ static void wakeup_source_activate(struct wakeup_source *ws)
     if (!enable_umts_ipc0_wl && !strcmp(ws->name, "umts_ipc0"))
         return;
         
-    if (!enable_radio_interface_wl && !strcmp(ws->name, "radio-interface"))
+    if ((!enable_radio_interface_wl && !strcmp(ws->name, "radio-interface")) && ws->active)
         return;
                 
     if ((!enable_lli_pm_wl && !strcmp(ws->name, "lli_pm_wlock")) && ws->active)
