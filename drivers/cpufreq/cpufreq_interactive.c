@@ -621,7 +621,9 @@ static void cpufreq_interactive_timer(unsigned long data)
 	if (!down_read_trylock(&pcpu->enable_sem))
 		return;
 	if (!pcpu->governor_enabled)
-		goto exit;
+		goto exit;		
+	if (pcpu->policy->min == pcpu->policy->max)
+		goto rearm;
 
 	spin_lock_irqsave(&pcpu->load_lock, flags);
 	now = update_load(data);
@@ -1112,7 +1114,7 @@ static ssize_t store_above_hispeed_delay(
 	struct cpufreq_interactive_tunables *tunables,
 	const char *buf, size_t count)
 {
-	int ntokens;
+	int ntokens, i;
 	unsigned int *new_above_hispeed_delay = NULL;
 	unsigned long flags;
 #ifdef CONFIG_MODE_AUTO_CHANGE
@@ -1122,6 +1124,15 @@ static ssize_t store_above_hispeed_delay(
 	new_above_hispeed_delay = get_tokenized_data(buf, &ntokens);
 	if (IS_ERR(new_above_hispeed_delay))
 		return PTR_RET(new_above_hispeed_delay);
+		
+	/* Make sure frequencies are in ascending order. */
+	for (i = 3; i < ntokens; i += 2) {
+		if (new_above_hispeed_delay[i] <=
+		    new_above_hispeed_delay[i - 2]) {
+			kfree(new_above_hispeed_delay);
+			return -EINVAL;
+		}
+	}
 
 	spin_lock_irqsave(&tunables->above_hispeed_delay_lock, flags);
 #ifdef CONFIG_MODE_AUTO_CHANGE
@@ -1164,7 +1175,7 @@ static ssize_t store_hispeed_freq(struct cpufreq_interactive_tunables *tunables,
 #ifdef CONFIG_MODE_AUTO_CHANGE
 	unsigned long flags_idx;
 #endif
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
 #ifdef CONFIG_MODE_AUTO_CHANGE
@@ -1197,7 +1208,7 @@ static ssize_t store_go_hispeed_load(struct cpufreq_interactive_tunables
 #ifdef CONFIG_MODE_AUTO_CHANGE
 	unsigned long flags_idx;
 #endif
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
 #ifdef CONFIG_MODE_AUTO_CHANGE
@@ -1230,7 +1241,7 @@ static ssize_t store_min_sample_time(struct cpufreq_interactive_tunables
 #ifdef CONFIG_MODE_AUTO_CHANGE
 	unsigned long flags_idx;
 #endif
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
 #ifdef CONFIG_MODE_AUTO_CHANGE
@@ -1263,7 +1274,7 @@ static ssize_t store_timer_rate(struct cpufreq_interactive_tunables *tunables,
 #ifdef CONFIG_MODE_AUTO_CHANGE
 	unsigned long flags_idx;
 #endif
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
 
@@ -1385,7 +1396,7 @@ static ssize_t store_screen_off_maxfreq(struct cpufreq_interactive_tunables *tun
 	int ret;
 	unsigned long val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0) return ret;
 	if (val < 384000) screen_off_max = DEFAULT_SCREEN_OFF_MAX;
 	else screen_off_max = val;
@@ -1424,7 +1435,7 @@ static ssize_t store_mode(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
 
@@ -1445,7 +1456,7 @@ static ssize_t store_enforced_mode(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
 
@@ -1467,7 +1478,7 @@ static ssize_t store_param_index(struct cpufreq_interactive_tunables
 	long unsigned int val;
 	unsigned long flags;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
 
@@ -1491,7 +1502,7 @@ static ssize_t store_multi_enter_load(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
@@ -1511,7 +1522,7 @@ static ssize_t store_multi_exit_load(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
@@ -1531,7 +1542,7 @@ static ssize_t store_single_enter_load(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
@@ -1551,7 +1562,7 @@ static ssize_t store_single_exit_load(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
@@ -1571,7 +1582,7 @@ static ssize_t store_multi_enter_time(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
@@ -1591,7 +1602,7 @@ static ssize_t store_multi_exit_time(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
@@ -1611,7 +1622,7 @@ static ssize_t store_single_enter_time(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
@@ -1631,7 +1642,7 @@ static ssize_t store_single_exit_time(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
@@ -1679,7 +1690,7 @@ static ssize_t store_single_cluster0_min_freq(struct cpufreq_interactive_tunable
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
@@ -1699,7 +1710,7 @@ static ssize_t store_multi_cluster0_min_freq(struct cpufreq_interactive_tunables
 	int ret;
 	long unsigned int val;
 
-	ret = strict_strtoul(buf, 0, &val);
+	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 			return ret;
 
