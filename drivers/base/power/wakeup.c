@@ -41,6 +41,9 @@ module_param(enable_wlan_ctrl_wake_wl, bool, 0644);
 static bool enable_wlan_wake_wl = true;
 module_param(enable_wlan_wake_wl, bool, 0644);
 
+static bool enable_wlan_scan_wake_wl = true;
+module_param(enable_wlan_scan_wake_wl, bool, 0644);
+
 static bool enable_wlan_pm_wake_wl = true;
 module_param(enable_wlan_pm_wake_wl, bool, 0644);
 
@@ -56,8 +59,8 @@ module_param(enable_power_manager_service_wl, bool, 0644);
 static bool enable_bluedroid_timer_wl = true;
 module_param(enable_bluedroid_timer_wl, bool, 0644);
 
-static bool enable_lli_pm_wl = true;
-module_param(enable_lli_pm_wl, bool, 0644);
+static bool enable_lli_pm_ws = true;
+module_param(enable_lli_pm_ws, bool, 0644);
 
 static bool enable_umts_ipc0_wl = true;
 module_param(enable_umts_ipc0_wl, bool, 0644);
@@ -74,6 +77,9 @@ module_param(enable_radio_interface_wl, bool, 0644);
 static int enable_alarmtimer_wl = true;
 module_param(enable_alarmtimer_wl, bool, 0644);
 
+static int enable_rtc_ws = true;
+module_param(enable_rtc_ws, bool, 0644);
+
 
 
 /*
@@ -81,9 +87,6 @@ module_param(enable_alarmtimer_wl, bool, 0644);
  * if wakeup events are registered during or immediately before the transition.
  */
 bool events_check_enabled __read_mostly;
-
-/* If set and the system is suspending, terminate the suspend. */
-static bool pm_abort_suspend __read_mostly;
 
 /*
  * Combined counters of registered wakeup events and wakeup events in progress.
@@ -113,6 +116,8 @@ static void pm_wakeup_timer_fn(unsigned long data);
 static LIST_HEAD(wakeup_sources);
 
 static DECLARE_WAIT_QUEUE_HEAD(wakeup_count_wait_queue);
+
+static ktime_t last_read_time;
 
 /**
  * wakeup_source_prepare - Prepare a new wakeup source for initialization.
@@ -296,6 +301,8 @@ int device_wakeup_enable(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(device_wakeup_enable);
 
+
+
 /**
  * device_wakeup_detach - Detach a device's wakeup source object from it.
  * @dev: Device to detach the wakeup source object from.
@@ -402,181 +409,6 @@ int device_set_wakeup_enable(struct device *dev, bool enable)
 	return enable ? device_wakeup_enable(dev) : device_wakeup_disable(dev);
 }
 EXPORT_SYMBOL_GPL(device_set_wakeup_enable);
-
-/*
- * The functions below use the observation that each wakeup event starts a
- * period in which the system should not be suspended.  The moment this period
- * will end depends on how the wakeup event is going to be processed after being
- * detected and all of the possible cases can be divided into two distinct
- * groups.
- *
- * First, a wakeup event may be detected by the same functional unit that will
- * carry out the entire processing of it and possibly will pass it to user space
- * for further processing.  In that case the functional unit that has detected
- * the event may later "close" the "no suspend" period associated with it
- * directly as soon as it has been dealt with.  The pair of pm_stay_awake() and
- * pm_relax(), balanced with each other, is supposed to be used in such
- * situations.
- *
- * Second, a wakeup event may be detected by one functional unit and processed
- * by another one.  In that case the unit that has detected it cannot really
- * "close" the "no suspend" period associated with it, unless it knows in
- * advance what's going to happen to the event during processing.  This
- * knowledge, however, may not be available to it, so it can simply specify time
- * to wait before the system can be suspended and pass it as the second
- * argument of pm_wakeup_event().
- *
- * It is valid to call pm_relax() after pm_wakeup_event(), in which case the
- * "no suspend" period will be ended either by the pm_relax(), or by the timer
- * function executed when the timer expires, whichever comes first.
- */
-
-/**
- * wakup_source_activate - Mark given wakeup source as active.
- * @ws: Wakeup source to handle.
- *
- * Update the @ws' statistics and, if @ws has just been activated, notify the PM
- * core of the event by incrementing the counter of of wakeup events being
- * processed.
- */
-static void wakeup_source_activate(struct wakeup_source *ws)
-{
-	unsigned int cec;
-
-	if (!enable_sensorhub_wl && !strcmp(ws->name, "ssp_sensorhub_wake_lock"))
-		return;
-
-	if (!enable_ssp_wl && !strcmp(ws->name, "ssp_wake_lock"))
-		return;
-
-	if (!enable_bcm4773_wl && !strcmp(ws->name, "bcm4773_wake_lock"))
-		return;
-
-	if (!enable_wlan_rx_wake_wl && !strcmp(ws->name, "wlan_rx_wake"))
-        return;
-
-	if (!enable_wlan_ctrl_wake_wl && !strcmp(ws->name, "wlan_ctrl_wake"))
-        return;
-
-	if (!enable_wlan_wake_wl && !strcmp(ws->name, "wlan_wake"))
-        return;
-        
-    if (!enable_wlan_pm_wake_wl && !strcmp(ws->name, "wlan_pm_wake"))
-        return;
-        
-    if (!enable_wlan_extscan_wl_ws && !strcmp(ws->name, "wlan_extscan_wl"))
-        return;
-        
-    if ((!enable_ipa_ws && !strcmp(ws->name, "IPA_WS")) && ws->active)
-        return;
-                
-    if (!enable_timerfd_ws && !strcmp(ws->name, "[timerfd]"))
-        return;
-                
-    if (!enable_netlink_ws && !strcmp(ws->name, "NETLINK"))
-        return;
-                
-    if (!enable_umts_ipc0_wl && !strcmp(ws->name, "umts_ipc0"))
-        return;
-        
-    if ((!enable_radio_interface_wl && !strcmp(ws->name, "radio-interface")) && ws->active)
-        return;
-                
-    if ((!enable_lli_pm_wl && !strcmp(ws->name, "lli_pm_wlock")) && ws->active)
-        return;
-        
-    if ((!enable_alarmtimer_wl && !strcmp(ws->name, "alarmtimer")) && ws->active)
-        return;    
-
-	if (!enable_power_manager_service_wl && !strcmp(ws->name, "PowerManagerService.WakeLocks"))
-		return;
-
-	if ((!enable_bluedroid_timer_wl && !strcmp(ws->name, "bluedroid_timer")) && ws->active)
-		return;
-
-	/*
-	 * active wakeup source should bring the system
-	 * out of PM_SUSPEND_FREEZE state
-	 */
-	freeze_wake();
-
-	ws->active = true;
-	ws->active_count++;
-	ws->last_time = ktime_get();
-	if (ws->autosleep_enabled)
-		ws->start_prevent_time = ws->last_time;
-
-#ifdef CONFIG_SEC_PM_DEBUG
-	if (ws->is_screen_off)
-		ws->start_screen_off = ws->last_time;
-#endif
-	/* Increment the counter of events in progress. */
-	cec = atomic_inc_return(&combined_event_count);
-
-	trace_wakeup_source_activate(ws->name, cec);
-}
-
-/**
- * wakeup_source_report_event - Report wakeup event using the given source.
- * @ws: Wakeup source to report the event for.
- */
-static void wakeup_source_report_event(struct wakeup_source *ws)
-{
-	ws->event_count++;
-	/* This is racy, but the counter is approximate anyway. */
-	if (events_check_enabled)
-		ws->wakeup_count++;
-
-	if (!ws->active)
-		wakeup_source_activate(ws);
-}
-
-/**
- * __pm_stay_awake - Notify the PM core of a wakeup event.
- * @ws: Wakeup source object associated with the source of the event.
- *
- * It is safe to call this function from interrupt context.
- */
-void __pm_stay_awake(struct wakeup_source *ws)
-{
-	unsigned long flags;
-
-	if (!ws)
-		return;
-
-	spin_lock_irqsave(&ws->lock, flags);
-
-	wakeup_source_report_event(ws);
-	del_timer(&ws->timer);
-	ws->timer_expires = 0;
-
-	spin_unlock_irqrestore(&ws->lock, flags);
-}
-EXPORT_SYMBOL_GPL(__pm_stay_awake);
-
-/**
- * pm_stay_awake - Notify the PM core that a wakeup event is being processed.
- * @dev: Device the wakeup event is related to.
- *
- * Notify the PM core of a wakeup event (signaled by @dev) by calling
- * __pm_stay_awake for the @dev's wakeup source object.
- *
- * Call this function after detecting of a wakeup event if pm_relax() is going
- * to be called directly after processing the event (and possibly passing it to
- * user space for further processing).
- */
-void pm_stay_awake(struct device *dev)
-{
-	unsigned long flags;
-
-	if (!dev)
-		return;
-
-	spin_lock_irqsave(&dev->power.lock, flags);
-	__pm_stay_awake(dev->power.wakeup);
-	spin_unlock_irqrestore(&dev->power.lock, flags);
-}
-EXPORT_SYMBOL_GPL(pm_stay_awake);
 
 #ifdef CONFIG_PM_AUTOSLEEP
 static void update_prevent_sleep_time(struct wakeup_source *ws, ktime_t now)
@@ -715,6 +547,226 @@ static void wakeup_source_deactivate(struct wakeup_source *ws)
 	if (!inpr && waitqueue_active(&wakeup_count_wait_queue))
 		wake_up(&wakeup_count_wait_queue);
 }
+
+/*
+ * The functions below use the observation that each wakeup event starts a
+ * period in which the system should not be suspended.  The moment this period
+ * will end depends on how the wakeup event is going to be processed after being
+ * detected and all of the possible cases can be divided into two distinct
+ * groups.
+ *
+ * First, a wakeup event may be detected by the same functional unit that will
+ * carry out the entire processing of it and possibly will pass it to user space
+ * for further processing.  In that case the functional unit that has detected
+ * the event may later "close" the "no suspend" period associated with it
+ * directly as soon as it has been dealt with.  The pair of pm_stay_awake() and
+ * pm_relax(), balanced with each other, is supposed to be used in such
+ * situations.
+ *
+ * Second, a wakeup event may be detected by one functional unit and processed
+ * by another one.  In that case the unit that has detected it cannot really
+ * "close" the "no suspend" period associated with it, unless it knows in
+ * advance what's going to happen to the event during processing.  This
+ * knowledge, however, may not be available to it, so it can simply specify time
+ * to wait before the system can be suspended and pass it as the second
+ * argument of pm_wakeup_event().
+ *
+ * It is valid to call pm_relax() after pm_wakeup_event(), in which case the
+ * "no suspend" period will be ended either by the pm_relax(), or by the timer
+ * function executed when the timer expires, whichever comes first.
+ */
+
+/**
+ * wakup_source_activate - Mark given wakeup source as active.
+ * @ws: Wakeup source to handle.
+ *
+ * Update the @ws' statistics and, if @ws has just been activated, notify the PM
+ * core of the event by incrementing the counter of of wakeup events being
+ * processed.
+ */
+static void wakeup_source_activate(struct wakeup_source *ws)
+{
+	unsigned int cec;
+
+	if (!enable_sensorhub_wl && !strcmp(ws->name, "ssp_sensorhub_wake_lock"))
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+
+	if (!enable_ssp_wl && !strcmp(ws->name, "ssp_wake_lock"))
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+
+	if (!enable_bcm4773_wl && !strcmp(ws->name, "bcm4773_wake_lock")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+
+	if (!enable_wlan_rx_wake_wl && !strcmp(ws->name, "wlan_rx_wake"))
+        {	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+
+	if (!enable_wlan_ctrl_wake_wl && !strcmp(ws->name, "wlan_ctrl_wake"))
+        {	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+
+	if (!enable_wlan_wake_wl && !strcmp(ws->name, "wlan_wake"))
+        {	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+        
+    if (!enable_wlan_scan_wake_wl && !strcmp(ws->name, "wlan_scan_wake"))
+        {	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+        
+    if (!enable_wlan_pm_wake_wl && !strcmp(ws->name, "wlan_pm_wake"))
+        {	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+        
+    if (!enable_wlan_extscan_wl_ws && !strcmp(ws->name, "wlan_extscan_wl"))
+        {	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+        
+    if (!enable_ipa_ws && !strcmp(ws->name, "IPA_WS")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+			
+	if (!enable_netlink_ws && !strcmp(ws->name, "NETLINK")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+			
+	if (!enable_timerfd_ws && !strcmp(ws->name, "[timerfd]")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+        
+    if (!enable_umts_ipc0_wl && !strcmp(ws->name, "umts_ipc0")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+        
+    if (!enable_radio_interface_wl && !strcmp(ws->name, "radio-interface")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+			
+	if (!enable_lli_pm_ws && !strcmp(ws->name, "lli_pm_wlock")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+			
+	if (!enable_alarmtimer_wl && !strcmp(ws->name, "alarmtimer")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }   
+
+	if (!enable_power_manager_service_wl && !strcmp(ws->name, "PowerManagerService.WakeLocks")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+			
+	if (!enable_bluedroid_timer_wl && !strcmp(ws->name, "bluedroid_timer")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+			
+	if (!enable_rtc_ws && !strcmp(ws->name, "rtc-sec")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
+			return; }
+
+	/*
+	 * active wakeup source should bring the system
+	 * out of PM_SUSPEND_FREEZE state
+	 */
+	freeze_wake();
+
+	ws->active = true;
+	ws->active_count++;
+	ws->last_time = ktime_get();
+	if (ws->autosleep_enabled)
+		ws->start_prevent_time = ws->last_time;
+
+#ifdef CONFIG_SEC_PM_DEBUG
+	if (ws->is_screen_off)
+		ws->start_screen_off = ws->last_time;
+#endif
+	/* Increment the counter of events in progress. */
+	cec = atomic_inc_return(&combined_event_count);
+
+	trace_wakeup_source_activate(ws->name, cec);
+}
+
+/**
+ * wakeup_source_report_event - Report wakeup event using the given source.
+ * @ws: Wakeup source to report the event for.
+ */
+static void wakeup_source_report_event(struct wakeup_source *ws)
+{
+	ws->event_count++;
+	/* This is racy, but the counter is approximate anyway. */
+	if (events_check_enabled)
+		ws->wakeup_count++;
+
+	if (!ws->active)
+		wakeup_source_activate(ws);
+}
+
+/**
+ * __pm_stay_awake - Notify the PM core of a wakeup event.
+ * @ws: Wakeup source object associated with the source of the event.
+ *
+ * It is safe to call this function from interrupt context.
+ */
+void __pm_stay_awake(struct wakeup_source *ws)
+{
+	unsigned long flags;
+
+	if (!ws)
+		return;
+
+	spin_lock_irqsave(&ws->lock, flags);
+
+	wakeup_source_report_event(ws);
+	del_timer(&ws->timer);
+	ws->timer_expires = 0;
+
+	spin_unlock_irqrestore(&ws->lock, flags);
+}
+EXPORT_SYMBOL_GPL(__pm_stay_awake);
+
+/**
+ * pm_stay_awake - Notify the PM core that a wakeup event is being processed.
+ * @dev: Device the wakeup event is related to.
+ *
+ * Notify the PM core of a wakeup event (signaled by @dev) by calling
+ * __pm_stay_awake for the @dev's wakeup source object.
+ *
+ * Call this function after detecting of a wakeup event if pm_relax() is going
+ * to be called directly after processing the event (and possibly passing it to
+ * user space for further processing).
+ */
+void pm_stay_awake(struct device *dev)
+{
+	unsigned long flags;
+
+	if (!dev)
+		return;
+
+	spin_lock_irqsave(&dev->power.lock, flags);
+	__pm_stay_awake(dev->power.wakeup);
+	spin_unlock_irqrestore(&dev->power.lock, flags);
+}
+EXPORT_SYMBOL_GPL(pm_stay_awake);
+
 
 /**
  * __pm_relax - Notify the PM core that processing of a wakeup event has ended.
@@ -910,21 +962,12 @@ bool pm_wakeup_pending(void)
 	}
 	spin_unlock_irqrestore(&events_lock, flags);
 
-	if (ret)
+	if (ret) {
+		pr_info("PM: Wakeup pending, aborting suspend\n");
 		print_active_wakeup_sources();
+	}
 
-	return ret || pm_abort_suspend;
-}
-
-void pm_system_wakeup(void)
-{
-	pm_abort_suspend = true;
-	freeze_wake();
-}
-
-void pm_wakeup_clear(void)
-{
-	pm_abort_suspend = false;
+	return ret;
 }
 
 /**
@@ -977,6 +1020,7 @@ bool pm_save_wakeup_count(unsigned int count)
 {
 	unsigned int cnt, inpr;
 	unsigned long flags;
+	struct wakeup_source *ws;
 
 	events_check_enabled = false;
 	spin_lock_irqsave(&events_lock, flags);
@@ -984,6 +1028,15 @@ bool pm_save_wakeup_count(unsigned int count)
 	if (cnt == count && inpr == 0) {
 		saved_count = count;
 		events_check_enabled = true;
+	} else {
+		rcu_read_lock();
+		list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
+			if (ws->active ||
+			    ktime_compare(ws->last_time, last_read_time) > 0) {
+				ws->wakeup_count++;
+			}
+		}
+		rcu_read_unlock();
 	}
 	spin_unlock_irqrestore(&events_lock, flags);
 	return events_check_enabled;
