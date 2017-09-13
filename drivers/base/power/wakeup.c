@@ -633,17 +633,17 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if (!enable_ipa_ws && !strcmp(ws->name, "IPA_WS")) 
+    if ((!enable_ipa_ws && !strcmp(ws->name, "IPA_WS")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
 			
-	if (!enable_netlink_ws && !strcmp(ws->name, "NETLINK")) 
+	if (!enable_netlink_ws && !strcmp(ws->name, "NETLINK"))
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
 			
-	if (!enable_timerfd_ws && !strcmp(ws->name, "[timerfd]")) 
+	if (!enable_timerfd_ws && !strcmp(ws->name, "[timerfd]"))
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
@@ -653,12 +653,12 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if (!enable_radio_interface_wl && !strcmp(ws->name, "radio-interface")) 
+    if ((!enable_radio_interface_wl && !strcmp(ws->name, "radio-interface")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
 			
-	if (!enable_lli_pm_ws && !strcmp(ws->name, "lli_pm_wlock")) 
+	if ((!enable_lli_pm_ws && !strcmp(ws->name, "lli_pm_wlock")) && ws->active)
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
@@ -678,7 +678,7 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 				wakeup_source_deactivate(ws);
 			return; }
 			
-	if (!enable_rtc_ws && !strcmp(ws->name, "rtc-sec")) 
+	if ((!enable_rtc_ws && !strcmp(ws->name, "rtc-sec")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
