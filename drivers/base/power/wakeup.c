@@ -74,8 +74,8 @@ module_param(enable_timerfd_ws, bool, 0644);
 static int enable_radio_interface_wl = true;
 module_param(enable_radio_interface_wl, bool, 0644);
 
-static int enable_alarmtimer_wl = true;
-module_param(enable_alarmtimer_wl, bool, 0644);
+static int enable_alarmtimer_ws = true;
+module_param(enable_alarmtimer_ws, bool, 0644);
 
 static int enable_rtc_ws = true;
 module_param(enable_rtc_ws, bool, 0644);
@@ -643,12 +643,12 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 				wakeup_source_deactivate(ws);
 			return; }
 			
-	if (!enable_timerfd_ws && !strcmp(ws->name, "[timerfd]"))
+	if ((!enable_timerfd_ws && !strcmp(ws->name, "[timerfd]")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if (!enable_umts_ipc0_wl && !strcmp(ws->name, "umts_ipc0")) 
+    if ((!enable_umts_ipc0_wl && !strcmp(ws->name, "umts_ipc0")) && ws->active)  
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
@@ -663,7 +663,7 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 				wakeup_source_deactivate(ws);
 			return; }
 			
-	if (!enable_alarmtimer_wl && !strcmp(ws->name, "alarmtimer")) 
+	if (!enable_alarmtimer_ws && !strcmp(ws->name, "alarmtimer")) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }   
