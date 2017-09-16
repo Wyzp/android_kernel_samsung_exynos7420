@@ -62,8 +62,8 @@ module_param(enable_bluedroid_timer_wl, bool, 0644);
 static bool enable_lli_pm_ws = true;
 module_param(enable_lli_pm_ws, bool, 0644);
 
-static bool enable_umts_ipc0_wl = true;
-module_param(enable_umts_ipc0_wl, bool, 0644);
+static bool enable_umts_ipc0_ws = true;
+module_param(enable_umts_ipc0_ws, bool, 0644);
 
 static bool enable_ipa_ws = true;
 module_param(enable_ipa_ws, bool, 0644);
@@ -71,8 +71,8 @@ module_param(enable_ipa_ws, bool, 0644);
 static bool enable_timerfd_ws = true;
 module_param(enable_timerfd_ws, bool, 0644);
 
-static int enable_radio_interface_wl = true;
-module_param(enable_radio_interface_wl, bool, 0644);
+static int enable_radio_interface_ws = true;
+module_param(enable_radio_interface_ws, bool, 0644);
 
 static int enable_alarmtimer_ws = true;
 module_param(enable_alarmtimer_ws, bool, 0644);
@@ -638,7 +638,7 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 				wakeup_source_deactivate(ws);
 			return; }
 			
-	if (!enable_netlink_ws && !strcmp(ws->name, "NETLINK"))
+	if ((!enable_netlink_ws && !strcmp(ws->name, "NETLINK")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
@@ -648,12 +648,12 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if ((!enable_umts_ipc0_wl && !strcmp(ws->name, "umts_ipc0")) && ws->active)  
+    if ((!enable_umts_ipc0_ws && !strcmp(ws->name, "umts_ipc0")) && ws->active)  
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if ((!enable_radio_interface_wl && !strcmp(ws->name, "radio-interface")) && ws->active) 
+    if ((!enable_radio_interface_ws && !strcmp(ws->name, "radio-interface")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
@@ -663,17 +663,17 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 				wakeup_source_deactivate(ws);
 			return; }
 			
-	if (!enable_alarmtimer_ws && !strcmp(ws->name, "alarmtimer")) 
+	if ((!enable_alarmtimer_ws && !strcmp(ws->name, "alarmtimer")) && ws->active)  
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }   
 
-	if (!enable_power_manager_service_wl && !strcmp(ws->name, "PowerManagerService.WakeLocks")) 
+	if ((!enable_power_manager_service_wl && !strcmp(ws->name, "PowerManagerService.WakeLocks")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
 			
-	if (!enable_bluedroid_timer_wl && !strcmp(ws->name, "bluedroid_timer")) 
+	if ((!enable_bluedroid_timer_wl && !strcmp(ws->name, "bluedroid_timer")) && ws->active)  
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
