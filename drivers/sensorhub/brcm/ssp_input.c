@@ -618,7 +618,7 @@ void report_temp_humidity_data(struct ssp_data *data,
 		data->buf[TEMPERATURE_HUMIDITY_SENSOR].y);
 	input_sync(data->temp_humi_input_dev);
 	if (data->buf[TEMPERATURE_HUMIDITY_SENSOR].z)
-		wake_lock_timeout(&data->ssp_wake_lock, HZ / 2;
+		wake_lock_timeout(&data->ssp_wake_lock, HZ / 2);
 }
 
 #ifdef CONFIG_SENSORS_SSP_SHTC1
