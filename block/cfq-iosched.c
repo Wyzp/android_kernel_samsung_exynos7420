@@ -3820,6 +3820,14 @@ cfq_should_preempt(struct cfq_data *cfqd, struct cfq_queue *new_cfqq,
 	if (cfq_slice_used(cfqq))
 		return true;
 
+	/*
+	 * Allow an RT request to pre-empt an ongoing non-RT cfqq timeslice.
+	 */
+	if (cfq_class_rt(new_cfqq) && !cfq_class_rt(cfqq))
+		return true;
+
+	WARN_ON_ONCE(cfqq->ioprio_class != new_cfqq->ioprio_class);
+
 	/* Allow preemption only if we are idling on sync-noidle tree */
 	if (cfqd->serving_wl_type == SYNC_NOIDLE_WORKLOAD &&
 	    cfqq_type(new_cfqq) == SYNC_NOIDLE_WORKLOAD &&
@@ -3834,11 +3842,6 @@ cfq_should_preempt(struct cfq_data *cfqd, struct cfq_queue *new_cfqq,
 	if ((rq->cmd_flags & REQ_PRIO) && !cfqq->prio_pending)
 		return true;
 
-	/*
-	 * Allow an RT request to pre-empt an ongoing non-RT cfqq timeslice.
-	 */
-	if (cfq_class_rt(new_cfqq) && !cfq_class_rt(cfqq))
-		return true;
 
 	/* An idle queue should not be idle now for some reason */
 	if (RB_EMPTY_ROOT(&cfqq->sort_list) && !cfq_should_idle(cfqd, cfqq))
@@ -4642,18 +4645,18 @@ static int __init cfq_init(void)
 
 	/*
 	 * could be 0 on HZ < 1000 setups
-	 
-	if (!cfq_slice_async)
+	*/ 
+	if (CONFIG_HZ >= 1000 && !cfq_slice_async)
 		cfq_slice_async = 1;
 	
 	/* Do not touch cfq_slice_idle if it is zero */
 	/*
-	if (!cfq_slice_idle)
-		cfq_slice_idle = 0;
+	if (CONFIG_HZ >= 1000 && !cfq_slice_idle)
+		cfq_slice_idle = 1;
 		*/
 
 #ifdef CONFIG_CFQ_GROUP_IOSCHED
-	if (!cfq_group_idle)
+	if (CONFIG_HZ >= 1000 && !cfq_group_idle)
 		cfq_group_idle = 1;
 
 	ret = blkcg_policy_register(&blkcg_policy_cfq);
