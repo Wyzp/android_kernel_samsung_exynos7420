@@ -1677,7 +1677,17 @@ int regmap_bulk_read(struct regmap *map, unsigned int reg, void *val,
 					  &ival);
 			if (ret != 0)
 				return ret;
-			map->format.format_val(val + (i * val_bytes), ival, 0);
+#ifdef CONFIG_SWITCH_ARIZONA
+		/*
+		 * Using the method introduced in 3.10.85, the IRQs received by
+		 * the arizona-driver will result in "Spurious MICDET IRQ"
+		 * It's just a warning, but a annyoing one and spams kmsg
+		 * the whole time. Use the old method if we have arizona enabled.
+		 */
+		memcpy(val + (i * val_bytes), &ival, val_bytes);
+#else
+		map->format.format_val(val + (i * val_bytes), ival, 0);
+#endif
 		}
 	}
 
