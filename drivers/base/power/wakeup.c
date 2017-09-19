@@ -71,13 +71,13 @@ module_param(enable_ipa_ws, bool, 0644);
 static bool enable_timerfd_ws = true;
 module_param(enable_timerfd_ws, bool, 0644);
 
-static int enable_radio_interface_ws = true;
+static bool enable_radio_interface_ws = true;
 module_param(enable_radio_interface_ws, bool, 0644);
 
-static int enable_alarmtimer_ws = true;
+static bool enable_alarmtimer_ws = true;
 module_param(enable_alarmtimer_ws, bool, 0644);
 
-static int enable_rtc_ws = true;
+static bool enable_rtc_ws = true;
 module_param(enable_rtc_ws, bool, 0644);
 
 
