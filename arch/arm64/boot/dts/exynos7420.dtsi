@@ -3034,7 +3034,7 @@
 			"hdmi_pixel";
 
 		ip_ver = <7>;
-		max_win = <6>;
+		max_win = <7>;
 		n_sink_pad = <6>;
 		n_src_pad = <1>;
 		default_win = <0>;
