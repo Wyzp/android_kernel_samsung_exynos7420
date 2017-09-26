@@ -104,6 +104,14 @@ void (*arm_pm_restart)(char str, const char *cmd);
 EXPORT_SYMBOL_GPL(arm_pm_restart);
 
 /*
+ * This is our default idle preparation.
+ */
+void arch_cpu_idle_prepare(void)
+{
+	local_fiq_enable();
+}
+
+/*
  * This is our default idle handler.
  */
 void arch_cpu_idle(void)
