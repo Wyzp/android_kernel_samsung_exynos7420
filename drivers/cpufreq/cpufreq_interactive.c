@@ -41,7 +41,7 @@
 #include <linux/android_aid.h>
 #endif
 
-#if defined(CONFIG_ARM_EXYNOS_MP_CPUFREQ) || defined(CONFIG_ARM_EXYNOS_SMP_CPUFREQ)
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
 #include <mach/cpufreq.h>
 #endif
 #include "cpu_load_metric.h"
@@ -83,12 +83,11 @@ static bool suspended = false;
 static unsigned int default_target_loads[] = {DEFAULT_TARGET_LOAD};
 
 #define DEFAULT_TIMER_RATE (20 * USEC_PER_MSEC)
-#define SCREEN_OFF_TIMER_RATE ((unsigned long)(60 * USEC_PER_MSEC))
 #define DEFAULT_ABOVE_HISPEED_DELAY DEFAULT_TIMER_RATE
 static unsigned int default_above_hispeed_delay[] = {
 	DEFAULT_ABOVE_HISPEED_DELAY };
 
-#define DEFAULT_SCREEN_OFF_MAX 1000000
+#define DEFAULT_SCREEN_OFF_MAX 1555200
 static unsigned long screen_off_max = DEFAULT_SCREEN_OFF_MAX;
 
 struct cpufreq_interactive_tunables {
@@ -112,7 +111,6 @@ struct cpufreq_interactive_tunables {
 	 * The sample rate of the timer used to increase frequency
 	 */
 	unsigned long timer_rate;
-	unsigned long prev_timer_rate;
 	/*
 	 * Wait this long before raising speed above hispeed, by default a
 	 * single timer interval.
@@ -432,16 +430,6 @@ static void cpufreq_interactive_timer(unsigned long data)
 	now = update_load(data);
 	delta_time = (unsigned int)(now - pcpu->cputime_speedadj_timestamp);
 	cputime_speedadj = pcpu->cputime_speedadj;
-	if (suspended == false
-	    	&& tunables->timer_rate != tunables->prev_timer_rate)
-		tunables->timer_rate = tunables->prev_timer_rate;
-	else if (suspended == true
-		&& tunables->timer_rate != SCREEN_OFF_TIMER_RATE ) {
-		tunables->prev_timer_rate = tunables->timer_rate;
-		tunables->timer_rate
-			= max(tunables->timer_rate,
-				SCREEN_OFF_TIMER_RATE);
-	}
 	spin_unlock_irqrestore(&pcpu->load_lock, flags);
 
 	if (WARN_ON_ONCE(!delta_time))
@@ -981,13 +969,17 @@ static ssize_t store_timer_rate(struct cpufreq_interactive_tunables *tunables,
 		const char *buf, size_t count)
 {
 	int ret;
-	unsigned long val;
+	unsigned long val,val_round;
 
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
-	tunables->timer_rate = val;
-	tunables->prev_timer_rate = val;
+
+	val_round = jiffies_to_usecs(usecs_to_jiffies(val));
+		if (val != val_round)
+			pr_warn("timer_rate not aligned to jiffy. Rounded up to %lu\n",
+				val_round);
+
 	return count;
 }
 
@@ -1332,7 +1324,6 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 			tunables->ntarget_loads = ARRAY_SIZE(default_target_loads);
 			tunables->min_sample_time = DEFAULT_MIN_SAMPLE_TIME;
 			tunables->timer_rate = usecs_to_jiffies(DEFAULT_TIMER_RATE);
-			tunables->prev_timer_rate = DEFAULT_TIMER_RATE;
 			tunables->boostpulse_duration_val = DEFAULT_MIN_SAMPLE_TIME;
 			tunables->timer_slack_val = usecs_to_jiffies(DEFAULT_TIMER_SLACK);
 		} else {
@@ -1438,7 +1429,7 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 		sched_setscheduler_nocheck(tunables->speedchange_task, SCHED_FIFO, &param);
 		get_task_struct(tunables->speedchange_task);
 
-#if defined(CONFIG_ARM_EXYNOS_MP_CPUFREQ) || defined(CONFIG_ARM_EXYNOS_SMP_CPUFREQ)
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
 		kthread_bind(tunables->speedchange_task, policy->cpu);
 #endif
 
@@ -1543,7 +1534,7 @@ unsigned int cpufreq_interactive_get_hispeed_freq(int cpu)
 }
 
 #ifdef CONFIG_ARCH_EXYNOS
-#ifndef CONFIG_EXYNOS7580_QUAD
+
 static int cpufreq_interactive_cluster1_min_qos_handler(struct notifier_block *b,
 						unsigned long val, void *v)
 {
@@ -1551,7 +1542,7 @@ static int cpufreq_interactive_cluster1_min_qos_handler(struct notifier_block *b
 	struct cpufreq_interactive_tunables *tunables;
 	unsigned long flags;
 	int ret = NOTIFY_OK;
-#if defined(CONFIG_ARM_EXYNOS_MP_CPUFREQ) || defined(CONFIG_ARM_EXYNOS_SMP_CPUFREQ)
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
 	int cpu = NR_CLUST0_CPUS;
 #else
 	int cpu = 0;
@@ -1602,7 +1593,7 @@ static int cpufreq_interactive_cluster1_max_qos_handler(struct notifier_block *b
 	struct cpufreq_interactive_tunables *tunables;
 	unsigned long flags;
 	int ret = NOTIFY_OK;
-#if defined(CONFIG_ARM_EXYNOS_MP_CPUFREQ) || defined(CONFIG_ARM_EXYNOS_SMP_CPUFREQ)
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
 	int cpu = NR_CLUST0_CPUS;
 #else
 	int cpu = 0;
@@ -1646,9 +1637,8 @@ static struct notifier_block cpufreq_interactive_cluster1_max_qos_notifier = {
 	.notifier_call = cpufreq_interactive_cluster1_max_qos_handler,
 };
 #endif
-#endif
 
-#if defined(CONFIG_ARM_EXYNOS_MP_CPUFREQ) || defined(CONFIG_ARM_EXYNOS_SMP_CPUFREQ)
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
 static int cpufreq_interactive_cluster0_min_qos_handler(struct notifier_block *b,
 						unsigned long val, void *v)
 {
@@ -1785,14 +1775,12 @@ static int __init cpufreq_interactive_init(void)
 	mutex_init(&gov_lock);
 
 #ifdef CONFIG_ARCH_EXYNOS
-#ifndef CONFIG_EXYNOS7580_QUAD
 	pm_qos_add_notifier(PM_QOS_CLUSTER1_FREQ_MIN, &cpufreq_interactive_cluster1_min_qos_notifier);
 	pm_qos_add_notifier(PM_QOS_CLUSTER1_FREQ_MAX, &cpufreq_interactive_cluster1_max_qos_notifier);
 #endif
-#if defined(CONFIG_ARM_EXYNOS_MP_CPUFREQ) || defined(CONFIG_ARM_EXYNOS_SMP_CPUFREQ)
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
 	pm_qos_add_notifier(PM_QOS_CLUSTER0_FREQ_MIN, &cpufreq_interactive_cluster0_min_qos_notifier);
 	pm_qos_add_notifier(PM_QOS_CLUSTER0_FREQ_MAX, &cpufreq_interactive_cluster0_max_qos_notifier);
-#endif
 #endif
 
 	return cpufreq_register_governor(&cpufreq_gov_interactive);
