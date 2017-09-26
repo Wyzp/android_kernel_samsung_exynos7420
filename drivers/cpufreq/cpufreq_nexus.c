@@ -188,20 +188,20 @@ static void cpufreq_nexus_timer(struct work_struct *work)
 	unsigned int freq_debug = 0;
 
 	cpuinfo = container_of(work, struct cpufreq_nexus_cpuinfo, work.work);
-	if (!cpuinfo)
+	if (unlikely(!cpuinfo))
 		return;
 
 	policy = cpuinfo->policy;
-	if (!policy)
+	if (unlikely(!policy))
 		return;
 
 	tunables = policy->governor_data;
 	cpu = cpuinfo->cpu;
 
-	if (mutex_lock_interruptible(&cpuinfo->timer_mutex))
+	if (unlikely(mutex_lock_interruptible(&cpuinfo->timer_mutex)))
 		return;
 
-	if (!cpu_online(cpu))
+	if (unlikely(!cpu_online(cpu)))
 		goto exit;
 
 	// calculate new load
@@ -212,7 +212,7 @@ static void cpufreq_nexus_timer(struct work_struct *work)
 	cpuinfo->prev_idle = curr_idle;
 	cpuinfo->prev_wall = curr_wall;
 
-	if (cpuinfo->init) {
+	if (unlikely(cpuinfo->init)) {
 		// apply the current cputimes and skip this sample
 		cpuinfo->init = 0;
 		goto requeue;
