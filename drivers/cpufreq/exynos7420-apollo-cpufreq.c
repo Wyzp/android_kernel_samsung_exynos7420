@@ -111,10 +111,10 @@ static const unsigned int asv_voltage_7420_CA53[CPUFREQ_LEVEL_END_CA53] = {
 	 825000,	/* L12  800 */
 	 787500,	/* L13  700 */
 	 750000,	/* L14  600 */
-	 715000,	/* L15  500 */
+	 712500,	/* L15  500 */
 	 675000,	/* L16  400 */
-	 620000,	/* L17  300 */
-	 575000,	/* L18  200 */
+	 650000,	/* L17  300 */
+	 625000,	/* L18  200 */
 };
 
 /* Minimum memory throughput in megabytes per second */
@@ -330,7 +330,7 @@ static void __init set_volt_table_CA53(void)
 #ifdef CONFIG_S6_LOW_IDLE
 	min_support_idx_CA53 = L18;	/* 200MHz */
 #else
-	min_support_idx_CA53 = L18;	/* 200MHz */
+	min_support_idx_CA53 = L16;	/* 400MHz */
 #endif
 	pr_info("CPUFREQ of CA53 max_freq : L%d %u khz\n", max_support_idx_CA53,
 		exynos7420_freq_table_CA53[max_support_idx_CA53].frequency);

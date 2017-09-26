@@ -147,10 +147,10 @@ static const unsigned int asv_voltage_7420_CA57[CPUFREQ_LEVEL_END_CA57] = {
 	 825000,	/* L17  800 */
 	 800000,	/* L18  700 */
 	 775000,	/* L19  600 */
-	 740000,	/* L20  500 */
-	 705000,	/* L21  400 */
-	 660000,	/* L22  300 */
-	 625000,	/* L23  200 */
+	 750000,	/* L20  500 */
+	 725000,	/* L21  400 */
+	 700000,	/* L22  300 */
+	 675000,	/* L23  200 */
 };
 
 /* minimum memory throughput in megabytes per second */
@@ -419,7 +419,7 @@ static void __init set_volt_table_CA57(void)
 #endif
 
 #ifdef CONFIG_S6_LOW_IDLE
-	min_support_idx_CA57 = L21;	/* 400 MHz */
+	min_support_idx_CA57 = L23;	/* 200 MHz */
 #else
 	min_support_idx_CA57 = L21;	/* 400 MHz */
 #endif
