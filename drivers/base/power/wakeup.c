@@ -693,6 +693,7 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 	if ((!enable_rtc_ws && !strcmp(ws->name, "rtc-sec")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
+			return; }
 
 	if (!enable_vfsspi_wake_lock_wl && !strcmp(ws->name, "vfsspi_wake_lock")) 
 		{	if (ws->active)
