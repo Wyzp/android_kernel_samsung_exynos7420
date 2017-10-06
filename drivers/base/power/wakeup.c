@@ -80,6 +80,9 @@ module_param(enable_alarmtimer_ws, bool, 0644);
 static bool enable_rtc_ws = true;
 module_param(enable_rtc_ws, bool, 0644);
 
+static bool enable_vfsspi_wake_lock_wl = true;
+module_param(enable_vfsspi_wake_lock_wl, bool, 0644);
+
 
 
 /*
@@ -613,36 +616,36 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 			return; }
 
 	if (!enable_wlan_rx_wake_wl && !strcmp(ws->name, "wlan_rx_wake"))
-        {	if (ws->active)
+        	{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
 
 	if (!enable_wlan_ctrl_wake_wl && !strcmp(ws->name, "wlan_ctrl_wake"))
-        {	if (ws->active)
+        	{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
 
 	if (!enable_wlan_wake_wl && !strcmp(ws->name, "wlan_wake"))
-        {	if (ws->active)
+        	{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if (!enable_wlan_scan_wake_wl && !strcmp(ws->name, "wlan_scan_wake"))
-        {	if (ws->active)
+	if (!enable_wlan_scan_wake_wl && !strcmp(ws->name, "wlan_scan_wake"))
+        	{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if (!enable_wlan_pm_wake_wl && !strcmp(ws->name, "wlan_pm_wake"))
-        {	if (ws->active)
+	if (!enable_wlan_pm_wake_wl && !strcmp(ws->name, "wlan_pm_wake"))
+        	{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if (!enable_wlan_extscan_wl_ws && !strcmp(ws->name, "wlan_extscan_wl"))
-        {	if (ws->active)
+	if (!enable_wlan_extscan_wl_ws && !strcmp(ws->name, "wlan_extscan_wl"))
+        	{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if ((!enable_ipa_ws && !strcmp(ws->name, "IPA_WS")) && ws->active) 
+	if ((!enable_ipa_ws && !strcmp(ws->name, "IPA_WS")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
@@ -657,12 +660,12 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if ((!enable_umts_ipc0_ws && !strcmp(ws->name, "umts_ipc0")) && ws->active)  
+   	if ((!enable_umts_ipc0_ws && !strcmp(ws->name, "umts_ipc0")) && ws->active)  
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
         
-    if ((!enable_radio_interface_ws && !strcmp(ws->name, "radio-interface")) && ws->active) 
+  	if ((!enable_radio_interface_ws && !strcmp(ws->name, "radio-interface")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
 			return; }
@@ -690,7 +693,12 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 	if ((!enable_rtc_ws && !strcmp(ws->name, "rtc-sec")) && ws->active) 
 		{	if (ws->active)
 				wakeup_source_deactivate(ws);
+
+	if (!enable_vfsspi_wake_lock_wl && !strcmp(ws->name, "vfsspi_wake_lock")) 
+		{	if (ws->active)
+				wakeup_source_deactivate(ws);
 			return; }
+
 
 	/*
 	 * active wakeup source should bring the system
