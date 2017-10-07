@@ -32,6 +32,8 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 #include <linux/pm_qos.h>
+#include <linux/state_notifier.h>
+static struct notifier_block interactive_state_notif;
 #include <linux/powersuspend.h>
 #include <asm/cputime.h>
 #ifdef CONFIG_ANDROID
@@ -1079,7 +1081,6 @@ show_store_gov_pol_sys(boostpulse_duration);
 show_store_gov_pol_sys(io_is_busy);
 show_store_gov_pol_sys(screen_off_maxfreq);
 
-#endif
 #define gov_sys_attr_rw(_name)						\
 static struct global_attr _name##_gov_sys =				\
 __ATTR(_name, 0660, show_##_name##_gov_sys, store_##_name##_gov_sys)
