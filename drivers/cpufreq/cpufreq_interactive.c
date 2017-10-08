@@ -32,8 +32,6 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 #include <linux/kernel_stat.h>
-#include <linux/state_notifier.h>
-static struct notifier_block interactive_state_notif;
 #include <linux/pm_qos.h>
 #include <asm/cputime.h>
 #include <linux/powersuspend.h>
@@ -228,7 +226,7 @@ static void cpufreq_interactive_timer_resched(
 	expires = jiffies + usecs_to_jiffies(tunables->timer_rate);
 	mod_timer_pinned(&pcpu->cpu_timer, expires);
 
-	if (tunables->timer_slack_val >= 0 &&
+	if (!suspended && tunables->timer_slack_val >= 0 &&
 	    pcpu->target_freq > pcpu->policy->min) {
 		expires += usecs_to_jiffies(tunables->timer_slack_val);
 		mod_timer_pinned(&pcpu->cpu_slack_timer, expires);
@@ -258,7 +256,7 @@ static void cpufreq_interactive_timer_start(
 
 	pcpu->cpu_timer.expires = expires;
 	add_timer_on(&pcpu->cpu_timer, cpu);
-	if (tunables->timer_slack_val >= 0 &&
+	if (!suspended && tunables->timer_slack_val >= 0 &&
 	    pcpu->target_freq > pcpu->policy->min) {
 		expires += usecs_to_jiffies(tunables->timer_slack_val);
 		pcpu->cpu_slack_timer.expires = expires;
@@ -485,7 +483,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	}
 #endif
 
-	if (cpu_load >= tunables->go_hispeed_load && !suspended  || boosted) {
+	if ((cpu_load >= tunables->go_hispeed_load && !suspended) || boosted) {
 		if (pcpu->target_freq < tunables->hispeed_freq) {
 			new_freq = tunables->hispeed_freq;
 		} else {
@@ -1912,26 +1910,6 @@ static struct notifier_block cpufreq_interactive_cluster0_max_qos_notifier = {
 };
 #endif
 #endif
-
-static int state_notifier_callback(struct notifier_block *this,
-				unsigned long event, void *data)
-{
-	if (!suspended)
-		return NOTIFY_OK;
-
-	switch (event) {
-		case STATE_NOTIFIER_ACTIVE:
-			suspended = false;
-			break;
-		case STATE_NOTIFIER_SUSPEND:
-			suspended = true;
-			break;
-		default:
-			break;
-	}
-
-	return NOTIFY_OK;
-}
 
 static void interactive_early_suspend(struct power_suspend *handler)
 {
