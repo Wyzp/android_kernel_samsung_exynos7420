@@ -48,16 +48,16 @@ void __iomem *g3d1_outstanding_regs;
 
 /*  clock, voltage, asv_abb, min_threshold, max_threshold, down_staycount, time, mem_freq, int_freq, cpu_freq (cl0) */
 static gpu_dvfs_info gpu_dvfs_table_default[] = {
-	{ 852, 792500, 0, 72, 100, 1, 0, 1552000, 400000, 1100000 },
-	{ 772, 743750, 0, 68,  96, 1, 0, 1552000, 400000, 1000000 },
-	{ 700, 706250, 0, 64,  92, 1, 0, 1552000, 400000,  900000 },
-	{ 600, 662500, 0, 60,  88, 1, 0, 1552000, 413000,  800000 },
-	{ 544, 631250, 0, 56,  84, 1, 0, 1026000, 413000,  700000 },
-	{ 420, 587500, 0, 52,  80, 1, 0, 1026000, 267000,       0 },
-	{ 350, 581250, 0, 48,  76, 1, 0,  543000, 200000,       0 },
-	{ 266, 581250, 0, 44,  72, 1, 0,  416000, 160000,       0 },
-	{ 160, 581250, 0, 40,  68, 1, 0,  416000, 160000,       0 },
-	{ 100, 581250, 0, 36,  64, 1, 0,  416000, 160000,       0 },
+	{ 852, 900000, 0, 72, 100, 1, 0, 1552000, 400000, 1100000 },
+	{ 772, 862500, 0, 68,  96, 1, 0, 1552000, 400000, 1000000 },
+	{ 700, 825000, 0, 64,  92, 1, 0, 1552000, 400000,  900000 },
+	{ 600, 781250, 0, 60,  88, 1, 0, 1552000, 413000,  800000 },
+	{ 544, 750000, 0, 56,  84, 1, 0, 1026000, 413000,  700000 },
+	{ 420, 706250, 0, 52,  80, 1, 0, 1026000, 267000,       0 },
+	{ 350, 700000, 0, 48,  76, 1, 0,  543000, 200000,       0 },
+	{ 266, 693750, 0, 44,  72, 1, 0,  416000, 160000,       0 },
+	{ 160, 693750, 0, 40,  68, 1, 0,  416000, 160000,       0 },
+	{ 100, 693750, 0, 36,  64, 1, 0,  416000, 160000,       0 },
 };
 
 static int mif_min_table[] = {
@@ -93,7 +93,7 @@ static gpu_attribute gpu_config_attributes[] = {
 	{GPU_GOVERNOR_TABLE_SIZE_STATIC, GPU_DVFS_TABLE_LIST_SIZE(gpu_dvfs_table_default)},
 	{GPU_GOVERNOR_TABLE_SIZE_BOOSTER, GPU_DVFS_TABLE_LIST_SIZE(gpu_dvfs_table_default)},
 	{GPU_GOVERNOR_INTERACTIVE_HIGHSPEED_CLOCK, 544},
-	{GPU_GOVERNOR_INTERACTIVE_HIGHSPEED_LOAD, 50},
+	{GPU_GOVERNOR_INTERACTIVE_HIGHSPEED_LOAD, 95},
 	{GPU_GOVERNOR_INTERACTIVE_HIGHSPEED_DELAY, 0},
 	{GPU_DEFAULT_VOLTAGE, 900000},
 	{GPU_COLD_MINIMUM_VOL, 0},
