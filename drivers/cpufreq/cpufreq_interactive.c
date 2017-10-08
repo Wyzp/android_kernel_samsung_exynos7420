@@ -32,6 +32,8 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 #include <linux/kernel_stat.h>
+#include <linux/state_notifier.h>
+static struct notifier_block interactive_state_notif;
 #include <linux/pm_qos.h>
 #include <asm/cputime.h>
 #include <linux/powersuspend.h>
