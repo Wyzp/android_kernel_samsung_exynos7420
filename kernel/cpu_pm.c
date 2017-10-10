@@ -22,7 +22,9 @@
 #include <linux/spinlock.h>
 #include <linux/syscore_ops.h>
 
-static DEFINE_RWLOCK(cpu_pm_notifier_lock);
+bool from_suspend = false;
+
+static DEFINE_RAW_SPINLOCK(cpu_pm_notifier_lock);
 static RAW_NOTIFIER_HEAD(cpu_pm_notifier_chain);
 
 static int cpu_pm_notify(enum cpu_pm_event event, int nr_to_call, int *nr_calls)
@@ -50,9 +52,9 @@ int cpu_pm_register_notifier(struct notifier_block *nb)
 	unsigned long flags;
 	int ret;
 
-	write_lock_irqsave(&cpu_pm_notifier_lock, flags);
+	raw_spin_lock_irqsave(&cpu_pm_notifier_lock, flags);
 	ret = raw_notifier_chain_register(&cpu_pm_notifier_chain, nb);
-	write_unlock_irqrestore(&cpu_pm_notifier_lock, flags);
+	raw_spin_unlock_irqrestore(&cpu_pm_notifier_lock, flags);
 
 	return ret;
 }
@@ -72,9 +74,9 @@ int cpu_pm_unregister_notifier(struct notifier_block *nb)
 	unsigned long flags;
 	int ret;
 
-	write_lock_irqsave(&cpu_pm_notifier_lock, flags);
+	raw_spin_lock_irqsave(&cpu_pm_notifier_lock, flags);
 	ret = raw_notifier_chain_unregister(&cpu_pm_notifier_chain, nb);
-	write_unlock_irqrestore(&cpu_pm_notifier_lock, flags);
+	raw_spin_unlock_irqrestore(&cpu_pm_notifier_lock, flags);
 
 	return ret;
 }
@@ -100,15 +102,15 @@ int cpu_pm_enter(void)
 	int nr_calls;
 	int ret = 0;
 
-	read_lock(&cpu_pm_notifier_lock);
-	ret = cpu_pm_notify(CPU_PM_ENTER, -1, &nr_calls);
+	raw_spin_lock(&cpu_pm_notifier_lock);
+	ret = cpu_pm_notify(CPU_PM_ENTER, -1, &nr_calls, NULL);
 	if (ret)
 		/*
 		 * Inform listeners (nr_calls - 1) about failure of CPU PM
 		 * PM entry who are notified earlier to prepare for it.
 		 */
-		cpu_pm_notify(CPU_PM_ENTER_FAILED, nr_calls - 1, NULL);
-	read_unlock(&cpu_pm_notifier_lock);
+		cpu_pm_notify(CPU_PM_ENTER_FAILED, nr_calls - 1, NULL, NULL);
+	raw_spin_unlock(&cpu_pm_notifier_lock);
 
 	return ret;
 }
@@ -130,9 +132,9 @@ int cpu_pm_exit(void)
 {
 	int ret;
 
-	read_lock(&cpu_pm_notifier_lock);
-	ret = cpu_pm_notify(CPU_PM_EXIT, -1, NULL);
-	read_unlock(&cpu_pm_notifier_lock);
+	raw_spin_lock(&cpu_pm_notifier_lock);
+	ret = cpu_pm_notify(CPU_PM_EXIT, -1, NULL, NULL);
+	raw_spin_unlock(&cpu_pm_notifier_lock);
 
 	return ret;
 }
@@ -159,15 +161,17 @@ int cpu_cluster_pm_enter(void)
 	int nr_calls;
 	int ret = 0;
 
-	read_lock(&cpu_pm_notifier_lock);
-	ret = cpu_pm_notify(CPU_CLUSTER_PM_ENTER, -1, &nr_calls);
+	raw_spin_lock(&cpu_pm_notifier_lock);
+	ret = cpu_pm_notify(CPU_CLUSTER_PM_ENTER, -1, &nr_calls,
+			(void *) aff_level);
 	if (ret)
 		/*
 		 * Inform listeners (nr_calls - 1) about failure of CPU cluster
 		 * PM entry who are notified earlier to prepare for it.
 		 */
-		cpu_pm_notify(CPU_CLUSTER_PM_ENTER_FAILED, nr_calls - 1, NULL);
-	read_unlock(&cpu_pm_notifier_lock);
+		cpu_pm_notify(CPU_CLUSTER_PM_ENTER_FAILED, nr_calls - 1, NULL,
+				(void *) aff_level);
+	raw_spin_unlock(&cpu_pm_notifier_lock);
 
 	return ret;
 }
@@ -192,9 +196,9 @@ int cpu_cluster_pm_exit(void)
 {
 	int ret;
 
-	read_lock(&cpu_pm_notifier_lock);
-	ret = cpu_pm_notify(CPU_CLUSTER_PM_EXIT, -1, NULL);
-	read_unlock(&cpu_pm_notifier_lock);
+	raw_spin_lock(&cpu_pm_notifier_lock);
+	ret = cpu_pm_notify(CPU_CLUSTER_PM_EXIT, -1, NULL, (void *) aff_level);
+	raw_spin_unlock(&cpu_pm_notifier_lock);
 
 	return ret;
 }
